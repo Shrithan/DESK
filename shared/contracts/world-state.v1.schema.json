@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "world-state.v1.schema.json",
+  "title": "WorldState",
+  "type": "object",
+  "required": ["type", "timestamp_ms", "session_id", "objects"],
+  "additionalProperties": false,
+  "properties": {
+    "type": { "const": "world_state" },
+    "timestamp_ms": { "type": "integer" },
+    "session_id": { "type": "string" },
+    "objects": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/TrackedObject" }
+    }
+  },
+  "definitions": {
+    "TrackedObject": {
+      "type": "object",
+      "required": ["id", "position_m", "tracking_state", "confidence", "source_cameras"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "position_m": {
+          "type": "object",
+          "required": ["x", "y", "z"],
+          "additionalProperties": false,
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" }
+          }
+        },
+        "tracking_state": { "enum": ["tracked", "predicted", "lost"] },
+        "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "source_cameras": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

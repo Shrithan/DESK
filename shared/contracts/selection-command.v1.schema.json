@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "selection-command.v1.schema.json",
+  "title": "SelectionCommand",
+  "type": "object",
+  "required": ["type", "session_id", "camera_id", "pixel", "frame_timestamp_ms"],
+  "additionalProperties": false,
+  "properties": {
+    "type": { "const": "select_object" },
+    "session_id": { "type": "string" },
+    "camera_id": { "type": "string" },
+    "pixel": {
+      "type": "object",
+      "required": ["x", "y"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "integer", "description": "Native image pixel column, not CSS display pixel" },
+        "y": { "type": "integer", "description": "Native image pixel row, not CSS display pixel" }
+      }
+    },
+    "frame_timestamp_ms": { "type": "integer" }
+  }
+}

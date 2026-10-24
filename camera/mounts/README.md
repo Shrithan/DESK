@@ -8,6 +8,8 @@ These are printable cradles that hold each phone rigidly on a standard 1/4"-20 t
 | `cam_2` | iPhone 14 Pro Max | `stl/cradle_iphone_14_pro_max.stl` (print twice) |
 | `cam_3` | iPhone 16 Pro | `stl/cradle_iphone_16_pro.stl` |
 
+![dimensions](dimensions.png)
+
 ![preview](preview.png)
 
 ## Design

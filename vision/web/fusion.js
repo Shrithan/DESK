@@ -222,13 +222,19 @@ function fuse(){
  p.metric=!!metricXY(b);
  if(!p.origin)p.origin=values;
  const rawPosition=values.map((v,i)=>(v-(p.metric&&i<2?0:p.origin[i]))*100);
+ // Jump gate: one sample implying > 3 m/s (or 300 %/s) is held back once; a second agreeing
+ // sample is accepted, so a real fast move costs at most one update, a glitch costs nothing.
+ let jump=false;
+ if(p.lastRaw&&p.lastGood&&!p.jumpHeld){const dt=Math.max(.03,(newest-p.lastGood)/1000),step=Math.hypot(...rawPosition.map((v,i)=>v-p.lastRaw[i]));jump=step>300*dt+5;}
+ if(jump){p.jumpHeld=true;p.position=p.lastPosition;p.state='holding';}
+ else{p.jumpHeld=false;p.lastRaw=rawPosition;
  if(typeof filterVector==='function'){
   const sourceStamp=newest;
   if(p.filterStamp!==sourceStamp){p.filterState=filterVector(p.filterState,rawPosition,sourceStamp);p.filterStamp=sourceStamp;}
   p.position=p.filterState.map(s=>s.value);
  }else p.position=rawPosition;
  const stamp=`${cameras.front.acceptedSample}|${cameras.top.acceptedSample}`;
- p.lastGood=newest;p.lastPosition=p.position;if(p.lastSample!==stamp){if(p.state==='lost')p.points.push(null);p.points.push(p.position);if(p.points.length>180)p.points.shift();p.lastSample=stamp;p.prediction=updatePrediction(p.prediction,p.position,newest-performance.timeOrigin,[cameras.top.acceptedSample-performance.timeOrigin,cameras.top.acceptedSample-performance.timeOrigin,cameras.front.acceptedSample-performance.timeOrigin]);}p.state='tracked';
+ p.lastGood=newest;p.lastPosition=p.position;if(p.lastSample!==stamp){if(p.state==='lost')p.points.push(null);p.points.push(p.position);if(p.points.length>180)p.points.shift();p.lastSample=stamp;p.prediction=updatePrediction(p.prediction,p.position,newest-performance.timeOrigin,[cameras.top.acceptedSample-performance.timeOrigin,cameras.top.acceptedSample-performance.timeOrigin,cameras.front.acceptedSample-performance.timeOrigin]);}p.state='tracked';}
  }else if(p.lastPosition&&p.lastGood&&newest-p.lastGood<=700){ // hold window, ms
   // Brief dropout (one view busy, a missed detection): hold the smoothed position so the
   // trail stays continuous; the prediction module extrapolates for up to 80 ms.
@@ -245,8 +251,22 @@ function fuse(){
  $('status').textContent=`${pairs.filter(p=>p.position).length} objects mapped · ${pairs.length} shared IDs · ${available('front').length+available('top').length} unpaired camera tracks`;
 }
 function clearOverlay(role){const canvas=cameras[role].overlay;canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);}
-function overlay(role){const c=cameras[role],canvas=c.overlay;canvas.width=c.canvas.width;canvas.height=c.canvas.height;const ctx=canvas.getContext('2d');
- for(const o of objects(role)){const obs=o.observation;if(!obs.bbox_xyxy||obs.tracking_state==='lost')continue;const pair=pairs.find(p=>p[role]===obs.object_id),color=pair?colors[(pair.number-1)%colors.length]:'#aab8aa';ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2;ctx.setLineDash(obs.tracking_state==='predicted'?[6,5]:[]);const [x,y,x2,y2]=obs.bbox_xyxy;ctx.strokeRect(x,y,x2-x,y2-y);ctx.font='15px sans-serif';ctx.fillText(typeof flatInputs!=='undefined'&&flatInputs.has(obs.object_id)?`2D input #${o.number}`:pair?`Object ${pair.number}`:`#${o.number} ${o.object_label} · unpaired`,x,Math.max(16,y-5));}
+function trackVelocities(c,result,sample){
+ // px per ms for each object, from consecutive results (for drawing boxes where the object is now).
+ c.velocity=c.velocity||{};const prev=c.lastCenters||{},next={};
+ for(const o of result?.objects||[]){const id=o.observation.object_id,m=o.motion;if(!m||o.observation.tracking_state!=='tracked')continue;next[id]=[m.center_px[0],m.center_px[1],sample];
+  const q=prev[id];if(q&&sample>q[2]&&sample-q[2]<400){const v=[(m.center_px[0]-q[0])/(sample-q[2]),(m.center_px[1]-q[1])/(sample-q[2])],old=c.velocity[id];c.velocity[id]=old?[.6*v[0]+.4*old[0],.6*v[1]+.4*old[1]]:v;}}
+ for(const id of Object.keys(c.velocity))if(!next[id])delete c.velocity[id];
+ c.lastCenters=next;
+}
+function boxLead(c,id,now){
+ // The result describes a frame that is already old; lead the box by speed x age (capped) so it
+ // sits on the live video instead of trailing a fast object.
+ const v=c.velocity?.[id];if(!v||!now||!c.acceptedSample)return [0,0];
+ const age=Math.max(0,Math.min(150,now-c.acceptedSample));return [v[0]*age,v[1]*age];
+}
+function overlay(role,now=null){const c=cameras[role],canvas=c.overlay;if(canvas.width!==c.canvas.width)canvas.width=c.canvas.width;if(canvas.height!==c.canvas.height)canvas.height=c.canvas.height;const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);
+ for(const o of objects(role)){const obs=o.observation;if(!obs.bbox_xyxy||obs.tracking_state==='lost')continue;const pair=pairs.find(p=>p[role]===obs.object_id),color=pair?colors[(pair.number-1)%colors.length]:'#aab8aa';ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2;ctx.setLineDash(obs.tracking_state==='predicted'?[6,5]:[]);const [lx,ly]=boxLead(c,obs.object_id,now),[x,y,x2,y2]=obs.bbox_xyxy.map((v,i)=>v+(i%2?ly:lx));ctx.strokeRect(x,y,x2-x,y2-y);ctx.font='15px sans-serif';ctx.fillText(typeof flatInputs!=='undefined'&&flatInputs.has(obs.object_id)?`2D input #${o.number}`:pair?`Object ${pair.number}`:`#${o.number} ${o.object_label} · unpaired`,x,Math.max(16,y-5));}
  // Draw measured side silhouette centerlines and estimated overhead joystick pivots.
  for(const o of objects(role))if(o.observation.tracking_state==='tracked'&&o.skeleton){
   const {base_px:base,top_px:top}=o.skeleton;ctx.strokeStyle='#f2dd83';ctx.fillStyle='#f2dd83';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(...base);ctx.lineTo(...top);ctx.stroke();for(const point of [base,top]){ctx.beginPath();ctx.arc(...point,5,0,Math.PI*2);ctx.fill();}ctx.font='12px sans-serif';ctx.fillText('base pivot',base[0]+7,base[1]);ctx.fillText('top',top[0]+7,top[1]);
@@ -256,6 +276,8 @@ function overlay(role){const c=cameras[role],canvas=c.overlay;canvas.width=c.can
  }
  $(`state-${role}`).textContent=`${objects(role).filter(o=>o.observation.tracking_state==='tracked').length} objects tracked`;
 }
+function animateOverlays(){if(running){const now=performance.timeOrigin+performance.now();for(const role of roles)if(cameras[role].result)overlay(role,now);}requestAnimationFrame(animateOverlays);}
+if(typeof requestAnimationFrame==='function')requestAnimationFrame(animateOverlays);
 async function pump(role,g){
  const c=cameras[role];
  if(!running||g!==generation)return;
@@ -266,7 +288,7 @@ async function pump(role,g){
   const blob=await new Promise(resolve=>c.canvas.toBlob(resolve,'image/jpeg',.85));if(!blob)throw new Error('Camera frame unavailable');
   const result=await api('/api/frame',blob,role,'image/jpeg',sample);
   if(g!==generation||!running)return;
-  c.result=result;c.sample=c.acceptedSample=sample;c.completed=(c.completed||0)+1;
+  trackVelocities(c,result,sample);c.result=result;c.sample=c.acceptedSample=sample;c.completed=(c.completed||0)+1;
   fuse();overlay(role);$('model-info').textContent=result.detector;
   const now=performance.now();if(now-analysisWindow>=1000){$('stats').textContent=`Tracking updates/sec: side ${((cameras.front.completed||0)*1000/(now-analysisWindow)).toFixed(1)} · overhead ${((cameras.top.completed||0)*1000/(now-analysisWindow)).toFixed(1)} · independent fresh-frame processing; sensor timing unverified`;analysisWindow=now;cameras.front.completed=cameras.top.completed=0;}
   error();

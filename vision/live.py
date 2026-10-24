@@ -38,8 +38,14 @@ def colour_similarity(a, b):
 
 class LiveSession:
     """One camera with independent object identities and sequential frame operations."""
-    def __init__(self, camera_id='front', engine=None):
+    def __init__(self, camera_id='front', engine=None, async_detection=False):
         self.camera_id, self.engine = camera_id, engine
+        # async_detection: run the segmentation model on a background thread so per-frame optical-flow
+        # tracking (~3 ms) never waits for it. Off by default (deterministic tests); the server turns it on.
+        self.async_detection = async_detection and engine is not None
+        self._job = None          # (thread, frame_id) of the running detection
+        self._job_result = None   # (detections, frame_id, centers_at_submit)
+        self._job_lock = threading.Lock()
         self.tuning=TrackingTuning.responsive() if engine is not None else TrackingTuning()
         self.lock = threading.Lock()
         self.table_plane = None  # vision.table_plane.TablePlane for a calibrated overhead camera
@@ -95,10 +101,16 @@ class LiveSession:
         healthy=bool(self.objects) and all(m['observation']['tracking_state']=='tracked' for m in self.objects.values())
         moving=any(m.get('velocity') is not None and np.linalg.norm(m['velocity'])>150 for m in self.objects.values())
         interval=.35 if self.workspace_multi and healthy and not moving else .12
-        fresh_detection = self.engine is not None and time.monotonic()-self.last_detection > interval
-        if fresh_detection:
-            self.detections = self.engine.detect(frame)
-            self.last_detection = time.monotonic()
+        due = self.engine is not None and time.monotonic()-self.last_detection > interval
+        if self.async_detection:
+            fresh_detection = self._collect_detection(frame)
+            if due and self._job is None:
+                self._submit_detection(frame)
+        else:
+            fresh_detection = due
+            if fresh_detection:
+                self.detections = self.engine.detect(frame)
+                self.last_detection = time.monotonic()
         resized = self.frame is not None and frame.shape != self.frame.shape
         if resized:
             self.tracker = Tracker(self.tuning)
@@ -253,6 +265,8 @@ class LiveSession:
                 obs=self.tracker._observation(target,self.camera_id,self.last_timestamp,'uncalibrated-live')
             if obs['bbox_xyxy'] is not None:
                 meta['bbox']=obs['bbox_xyxy']
+                hist=meta.setdefault('history',[]);hist.append((self.frame_id,list(obs['bbox_xyxy'])))
+                del hist[:-90]
                 if obs['tracking_state']=='tracked':
                     x,y,x2,y2=obs['bbox_xyxy']; c=np.array([(x+x2)/2,(y+y2)/2]); now=time.monotonic()
                     last=meta.get('last_center')
@@ -266,6 +280,68 @@ class LiveSession:
         response['processing_ms'] = round((time.perf_counter()-started)*1000, 2)
         response['selection_reset'] = resized
         return response
+
+    def _centers(self):
+        return {oid: np.array([(m['bbox'][0]+m['bbox'][2])/2, (m['bbox'][1]+m['bbox'][3])/2])
+                for oid, m in self.objects.items() if m.get('bbox') is not None}
+
+    def _submit_detection(self, frame):
+        snapshot, frame_id = frame.copy(), self.frame_id + 1
+        boxes = None  # looked up from each object's box history at collect time
+        self.last_detection = time.monotonic()
+
+        def run():
+            try:
+                detections = self.engine.detect(snapshot)
+            except Exception:  # noqa: BLE001 - a failed inference just means no fresh detections this round
+                detections = []
+            with self._job_lock:
+                self._job_result = (detections, frame_id, boxes)
+                self._job = None
+        with self._job_lock:
+            self._job = threading.Thread(target=run, daemon=True, name=f'detect-{self.camera_id}')
+            self._job.start()
+
+    def _collect_detection(self, frame):
+        """Take a finished background detection, shifted to where each object is *now*.
+
+        The model saw an older frame; re-seeding a track with that stale mask would drag it
+        backwards (the box 'falls behind' a fast object). Each detection is matched to the
+        object it covered at submit time and translated by that object's motion since.
+        """
+        with self._job_lock:
+            result, self._job_result = self._job_result, None
+        if result is None:
+            return False
+        detections, job_frame, _ = result
+        if self.frame is not None and frame.shape != self.frame.shape:
+            return False
+        now = self._centers()
+        # Each object's box on the frame the model saw (or its first box, if it was created later).
+        then = {}
+        for oid, m in self.objects.items():
+            hist = m.get('history')
+            if hist:
+                then[oid] = next((b for f, b in reversed(hist) if f <= job_frame), hist[0][1])
+        h, w = frame.shape[:2]
+        shifted = []
+        for d in detections:
+            best, best_overlap = None, .2
+            for oid, box in then.items():
+                o = overlap(d['bbox'], box)
+                if oid in now and o > best_overlap:
+                    best, best_overlap = oid, o
+            if best is not None:
+                old = then[best]
+                dx, dy = now[best] - np.array([(old[0]+old[2])/2, (old[1]+old[3])/2])
+                if abs(dx) > .5 or abs(dy) > .5:
+                    M = np.float32([[1, 0, dx], [0, 1, dy]])
+                    d = dict(d, mask=cv2.warpAffine(d['mask'], M, (w, h), flags=cv2.INTER_NEAREST),
+                             bbox=[d['bbox'][0]+dx, d['bbox'][1]+dy, d['bbox'][2]+dx, d['bbox'][3]+dy],
+                             center=[d['center'][0]+dx, d['center'][1]+dy] if d.get('center') is not None else None)
+            shifted.append(d)
+        self.detections = shifted
+        return True
 
     def _predicted_center(self, meta):
         """Constant-velocity guess of where the object is now (pixels), from its last tracked centre."""
@@ -444,7 +520,7 @@ class LiveServer(ThreadingHTTPServer):
     daemon_threads = True
     def __init__(self, address, engine=None):
         super().__init__(address, Handler)
-        self.sessions = {name:LiveSession(name,engine) for name in ('front','top')}
+        self.sessions = {name:LiveSession(name,engine,async_detection=True) for name in ('front','top')}
         self.session = self.sessions['front']
         from vision.stereo import WorkspaceMapper
         self.mapper = WorkspaceMapper()
@@ -634,6 +710,8 @@ def main():
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--detector',choices=['yolo','motion'],default='yolo')
     parser.add_argument('--device',choices=['auto','cpu','mps'],default='auto')
+    parser.add_argument('--model-size',choices=['s','m','l','x'],default='x',
+                        help='YOLOE size: s is several times faster than x (run `python -m vision.prepare_model --size s` once)')
     parser.add_argument('--calibration',help='calibration JSON (calibration/data/rig_calibration.json or stereo format)')
     parser.add_argument('--top-camera',default='cam_1',help='calibration id of the overhead camera (default cam_1)')
     parser.add_argument('--front-camera',help='calibration id of the side camera, enables calibrated 3D (e.g. cam_2)')
@@ -644,7 +722,7 @@ def main():
     engine=None
     if args.detector=='yolo':
         try:
-            engine=ObjectSegmenter(DEFAULT_WEIGHTS,device=args.device)
+            engine=ObjectSegmenter(DEFAULT_WEIGHTS.with_name(f'desk-yoloe-{args.model_size}.pt'),device=args.device)
             print(f'Object segmentation ready ({engine.device}); frames stay local.',flush=True)
         except (ImportError,FileNotFoundError,RuntimeError) as exc:
             print(f'Segmentation unavailable: {exc}. Using explicitly labelled motion fallback.',flush=True)

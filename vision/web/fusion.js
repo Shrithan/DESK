@@ -184,8 +184,11 @@ function associationStep(pair,a,b,now){
  pair.lastCenters=centers;
  return !!pair.confirmed;
 }
+function metricXY(b){return Array.isArray(b?.table_xy_m)&&b.table_xy_m.every(Number.isFinite)?b.table_xy_m:null;}
 function spatialValues(a,b){
- const side=cameras.front.canvas,top=cameras.top.canvas;
+ const side=cameras.front.canvas,top=cameras.top.canvas,xy=metricXY(b);
+ // Calibrated overhead camera: absolute table X/Y in metres (shown in cm); Z stays relative to the side view.
+ if(xy)return [xy[0],xy[1],-a.motion.center_px[1]/side.height*($('flip-front').checked?-1:1)];
  return [b.motion.center_px[0]/top.width*($('flip-top').checked?-1:1),
          -b.motion.center_px[1]/top.height*($('flip-y').checked?-1:1),
          -a.motion.center_px[1]/side.height*($('flip-front').checked?-1:1)];
@@ -202,8 +205,9 @@ function fuse(){
  p.position=null;
  if(good&&synchronized){
  const values=spatialValues(a,b);
+ p.metric=!!metricXY(b);
  if(!p.origin)p.origin=values;
- const rawPosition=values.map((v,i)=>(v-p.origin[i])*100);
+ const rawPosition=values.map((v,i)=>(v-(p.metric&&i<2?0:p.origin[i]))*100);
  if(typeof filterVector==='function'){
   const sourceStamp=newest;
   if(p.filterStamp!==sourceStamp){p.filterState=filterVector(p.filterState,rawPosition,sourceStamp);p.filterStamp=sourceStamp;}
@@ -214,7 +218,7 @@ function fuse(){
  }else{if(p.visualTrail?.length&&p.visualTrail[p.visualTrail.length-1]!==null)p.visualTrail.push(null);p.visual=null;p.visualTime=null;p.prediction=null;p.filterState=null;p.filterStamp=null;p.state=good?'waiting for paired samples':p.confirmed?'waiting for both views':'Move the target left/right so both views see it move';}
  const card=document.createElement('div');card.className='track-card';card.style.borderColor=color;
  const title=document.createElement('strong');title.textContent=`Object ${p.number} · ${p.label}`;title.style.color=color;
- const text=document.createElement('p');text.textContent=p.position?`X ${p.position[0].toFixed(1)}% · Y ${p.position[1].toFixed(1)}% · Z ${p.position[2].toFixed(1)}%`:p.state;
+ const text=document.createElement('p');text.textContent=p.position?(p.metric?`X ${p.position[0].toFixed(1)} cm · Y ${p.position[1].toFixed(1)} cm (table, calibrated) · Z ${p.position[2].toFixed(1)}% relative`:`X ${p.position[0].toFixed(1)}% · Y ${p.position[1].toFixed(1)}% · Z ${p.position[2].toFixed(1)}%`):p.state;
  const method=document.createElement('p');method.textContent=p.confirmed?(p.manual?'Paired by you · both views':'Motion-matched · both views'):'Move this object in both views to recheck its identity';
  const remove=document.createElement('button');remove.textContent='Unpair';remove.addEventListener('click',()=>{pairs.splice(pairs.indexOf(p),1);candidates.clear();card.remove();options();draw();});
  card.append(title,text,method,remove);cards.push(card);

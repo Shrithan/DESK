@@ -13,6 +13,14 @@ page is intentionally one webcam. Earlier dual-camera setup below is historical.
 Agent 2's selection, detection, tracking, correspondence and local demonstration
 adapter. No shared backend or calibration contracts are replaced by this prototype.
 
+## Calibrated overhead mapping (metres)
+
+Calibrate the overhead webcam with agent 1's tools, then start with
+`--calibration calibration/data/<file>.json --top-camera cam_1`. Overhead objects then
+report metric table X/Y (`table_xy_m`) and the cards and map show centimetres.
+See [calibrated mapping](docs/calibrated-mapping.md), [camera ingest](camera/README.md),
+[calibration](calibration/README.md) and the [printable stands](camera/hardware/).
+
 ## Two live cameras and a separate object map
 
 ```sh

@@ -34,6 +34,7 @@ class LiveSession:
         self.camera_id, self.engine = camera_id, engine
         self.tuning=TrackingTuning.responsive() if engine is not None else TrackingTuning()
         self.lock = threading.Lock()
+        self.table_plane = None  # vision.table_plane.TablePlane for a calibrated overhead camera
         self.reset()
 
     def reset(self):
@@ -354,7 +355,10 @@ class LiveSession:
             else:
                 meta['previous']=None
                 meta['rotation_valid']=False
-            objects.append(dict(observation=obs,motion=motion,orientation=orientation,skeleton=skeleton,object_label=meta['label'],number=meta['number'],selection_source=meta['source']))
+            table_xy=None
+            if obs['tracking_state']=='tracked' and self.table_plane is not None and self.frame is not None:
+                table_xy=self.table_xy(oid)
+            objects.append(dict(observation=obs,motion=motion,orientation=orientation,skeleton=skeleton,object_label=meta['label'],number=meta['number'],selection_source=meta['source'],table_xy_m=table_xy))
         primary=objects[0] if objects else {}
         return dict(frame_id=self.frame_id, observation=primary.get('observation'), motion=primary.get('motion'),objects=objects,
                     timestamp_domain="server_receipt_unix_ms", coordinate_units="image_pixels",
@@ -362,7 +366,20 @@ class LiveSession:
                     auto_status=self.detector.status, camera_id=self.camera_id,object_label=self.object_label,
                     detector=f'{getattr(self.engine,"model_name","YOLOE")} segmentation + optical flow' if self.engine else 'motion fallback',
                     detections=ObjectSegmenter.public(self.detections) if self.engine else [],
-                    focus_sharpness=self.focus_score, capture_sample_ms=self.capture_sample_ms)
+                    focus_sharpness=self.focus_score, capture_sample_ms=self.capture_sample_ms,
+                    table_plane=self.table_plane.describe() if self.table_plane is not None else None)
+
+    def table_xy(self, oid):
+        """Metric X/Y (m) of a tracked object's mask centroid on the calibrated table plane, or None."""
+        target=self.tracker.targets.get((self.camera_id,oid))
+        if target is None or target.mask is None:return None
+        m=cv2.moments(target.mask)
+        if not m['m00']:return None
+        try:
+            xy=self.table_plane.to_table([[m['m10']/m['m00'],m['m01']/m['m00']]],self.frame.shape)[0]
+        except ValueError:
+            return None
+        return None if not np.isfinite(xy).all() else [round(float(xy[0]),4),round(float(xy[1]),4)]
 
 
 class LiveServer(ThreadingHTTPServer):
@@ -482,7 +499,10 @@ class Handler(BaseHTTPRequestHandler):
                     if not isinstance(payload,dict):
                         raise ValueError("Expected a JSON object")
                     if path == '/api/calibration':
-                        result = self.server.mapper.configure(payload)
+                        if payload.get('schema')=='phantom.rig_calibration' or 'front' not in payload.get('cameras',{}):
+                            result = configure_calibration(self.server,payload,payload.get('top_camera','cam_1'),payload.get('front_camera'),payload.get('plane_height_m',0.0))
+                        else:
+                            result = configure_calibration(self.server,payload)
                     elif path == '/api/map/reset':
                         self.server.mapper.reset_anchor()
                         result = dict(status='reference_reset')
@@ -534,11 +554,32 @@ class Handler(BaseHTTPRequestHandler):
             self.send(408,dict(error="Request timed out"))
 
 
+def configure_calibration(server,payload,top_camera='cam_1',front_camera=None,plane_height_m=0.0):
+    """Load agent-1 or stereo-format calibration: metric table X/Y for 'top', optional calibrated 3D."""
+    from vision.table_plane import TablePlane, to_stereo_payload
+    agent1=payload.get('schema')=='phantom.rig_calibration'
+    top=top_camera if agent1 else 'top'
+    server.sessions['top'].table_plane=TablePlane(payload,top,plane_height_m)
+    result=dict(status='table_plane_calibrated',**server.sessions['top'].table_plane.describe())
+    stereo=None
+    if agent1 and front_camera:
+        stereo=to_stereo_payload(payload,top_camera,front_camera)
+    elif not agent1 and 'front' in payload.get('cameras',{}):
+        stereo=payload
+    if stereo is not None:
+        result['stereo']=server.mapper.configure(stereo)
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--detector',choices=['yolo','motion'],default='yolo')
     parser.add_argument('--device',choices=['auto','cpu','mps'],default='auto')
+    parser.add_argument('--calibration',help='calibration JSON (calibration/data/rig_calibration.json or stereo format)')
+    parser.add_argument('--top-camera',default='cam_1',help='calibration id of the overhead camera (default cam_1)')
+    parser.add_argument('--front-camera',help='calibration id of the side camera, enables calibrated 3D (e.g. cam_2)')
+    parser.add_argument('--plane-height-m',type=float,default=0.0,help='height of the tracking plane above the calibrated table')
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO,format='%(levelname)s %(name)s %(message)s')
     cv2.setNumThreads(2)
@@ -550,6 +591,8 @@ def main():
         except (ImportError,FileNotFoundError,RuntimeError) as exc:
             print(f'Segmentation unavailable: {exc}. Using explicitly labelled motion fallback.',flush=True)
     server = LiveServer(('127.0.0.1', args.port),engine)
+    if args.calibration:
+        configure_calibration(server,json.loads(Path(args.calibration).read_text()),args.top_camera,args.front_camera,args.plane_height_m)
     print(f'Phantom live camera: http://localhost:{server.server_port}',flush=True)
     print('Use Safari or Chrome on this Mac. Start the connected USB webcam and move an object after the scene settles.',flush=True)
     try:

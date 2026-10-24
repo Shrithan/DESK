@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+.env
+.env.*
+*.mp4
+*.mov
+*.pt
+*.onnx
+.DS_Store

@@ -1,0 +1,20 @@
+[project]
+name = "desk-geometry-backend"
+version = "0.1.0"
+description = "DESK/PHANTOM agent 3: shared contracts, geometry, backend, tilt-to-keys"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    "websockets>=13",
+]
+
+[project.optional-dependencies]
+keys = ["pynput>=1.7"]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["shared*", "backend*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

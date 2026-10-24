@@ -32,23 +32,17 @@ panel once a real backend is serving `/ws/world`.
 
 ## Game control (object movement → real keyboard input)
 
-Selecting an object and arming **Game Control** turns its movement into
-arrow-key presses (left/right = lane, up/down = jump/duck), so moving the
-physical object can drive an actual focused game window. This is **OFF by
-default** and only sends real OS keystrokes when:
+The actual tilt→keyboard mapping and OS keystroke injection lives in Agent
+3's `backend/tilt_keys/` (pynput-based, with calibration/filtering/safety —
+see `docs/tilt_to_keys.md` at the repo root). This frontend does **not**
+inject keystrokes itself; it only visualizes the held-key state by
+subscribing to that backend's `/ws/keys` feed, so you can watch W/A/S/D
+light up in the HUD in sync with whatever game is actually receiving the
+real presses.
 
-1. The HUD toggle is armed, **and**
-2. `npm run proxy:gamecontrol` is running with `GAME_CONTROL_ALLOW_INJECT=1`
-   (macOS only — uses `osascript`/System Events; first run prompts for
-   Accessibility permission for the terminal running it).
-
-Without the proxy running (or without step 2), arming just logs what *would*
-have been sent — safe to demo the UI without touching anyone's keyboard.
-Gestures fire from velocity, not raw position, with a per-direction cooldown
-— gentle idle motion won't trigger anything; a deliberate swipe will.
-
-**This will send keystrokes to whatever window has focus, not just the
-game** — click the target game window before moving the object.
+Run `python -m backend.tilt_keys.run --input ws --backend pynput,websocket`
+(from the repo root, see that module's own setup instructions) and the
+"Held Keys" panel here will light up live.
 
 ## Scripts
 
@@ -58,9 +52,6 @@ game** — click the target game window before moving the object.
 - `npm run proxy:cartesia` — starts the zero-dependency Cartesia proxy
   (`../integrations/cartesia/server.mjs`) on :8787, mock mode unless
   `CARTESIA_API_KEY` is set
-- `npm run proxy:gamecontrol` — starts the zero-dependency keystroke proxy
-  (`../integrations/gamecontrol/server.mjs`) on :8788, mock mode unless
-  `GAME_CONTROL_ALLOW_INJECT=1`
 
 ## What's real vs. mocked
 

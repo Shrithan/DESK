@@ -32,18 +32,19 @@ Opens at http://localhost:5173 in Mock mode — two virtual objects moving in
   boundary around the 3D canvas (a WebGL init failure was previously taking
   down the whole app, HUD included — found by actually rendering it, not
   just build/tests)
-- **Game control**: object velocity → left/right/jump/duck gesture →
-  real OS keystroke via a local proxy (`integrations/gamecontrol/`), so
-  moving the tracked object can drive an actual focused game (team-agreed
-  scope addition, not in the original milestone doc — flagging here so it's
-  visible to the other 3 agents). OFF by default, two independent gates
-  before anything real fires (UI arm + proxy env flag). Not in the written
-  contract, so no shared-contract changes were needed — it only consumes
-  `position_m` that's already flowing.
+- **Held-keys HUD**: subscribes to Agent 3's `backend/tilt_keys` `/ws/keys`
+  feed (`key_state` v1.0.0) and lights up W/A/S/D in sync with real
+  keystrokes their backend sends via pynput. Visualization only — this
+  frontend does not inject keystrokes. (I initially built my own parallel
+  velocity→arrow-keys injector before discovering Agent 3 had already
+  shipped a much more complete tilt-based version straight to `main` with
+  calibration, filtering, and safety handling; dropped mine in favor of
+  consuming theirs — see git history on this branch for both halves of
+  that.)
 
 **Tests:** `cd frontend && npm test` — 23 passing (coords transform, pixel
-mapping, contract validation, gesture detection thresholds/cooldown/priority,
-store + mock-world integration smoke test)
+mapping, contract validation, key_state parsing, store + mock-world
+integration smoke test)
 
 **Blockers:** None yet — no backend exists, so Live mode is untested against
 a real `/ws/world` server. `shared/contracts/*.v1.schema.json` is my
@@ -52,7 +53,4 @@ should confirm/finalize it.
 
 **Next:** wire a real Convex deployment if time allows; get a real backend
 to test Live mode against; camera-preview images are currently SVG
-placeholders — swap for Agent 1's actual preview endpoint once it exists;
-game-control gesture thresholds are tuned for a guess at real hand-swipe
-speed and should get a pass with an actual tracked object once Agents 1-3
-are live.
+placeholders — swap for Agent 1's actual preview endpoint once it exists.

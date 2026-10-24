@@ -6,110 +6,70 @@ import { StatusPanel } from "./components/Hud/StatusPanel";
 import { SpeakerIcon } from "./components/Hud/SpeakerIcon";
 import { ObjectList } from "./components/Hud/ObjectList";
 import { CameraHealthPanel } from "./components/Hud/CameraHealthPanel";
-import { GameControlPanel, type GestureLogEntry } from "./components/Hud/GameControlPanel";
+import { HeldKeysPanel } from "./components/Hud/HeldKeysPanel";
 import { CameraPreviewPanel } from "./components/CameraSelect/CameraPreviewPanel";
 import { useWorldStore } from "./store/worldStore";
 import { startMockWorld } from "./lib/mockWorld";
-import { connectWorldSocket } from "./lib/wsClient";
-import { GestureDetector, GESTURE_KEY_MAP } from "./lib/gestureDetector";
+import { connectWorldSocket, type ConnectionStatus } from "./lib/wsClient";
+import { connectKeysSocket } from "./lib/keysSocket";
+import type { KeyState } from "./lib/keyState";
 import { CartesiaAdapter } from "../../integrations/cartesia/CartesiaAdapter";
 import { createConvexSessionAdapter } from "../../integrations/convex/ConvexSessionAdapter";
-import { GameControlAdapter } from "../../integrations/gamecontrol/GameControlAdapter";
 import type { RenderObject } from "./store/worldStore";
-import type { SelectionCommand, WorldState } from "./lib/contract";
+import type { SelectionCommand } from "./lib/contract";
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:8000/ws/world";
+const KEYS_WS_URL = import.meta.env.VITE_KEYS_WS_URL ?? "ws://localhost:8765/ws/keys";
 
 export default function App() {
   const mode = useWorldStore((s) => s.mode);
   const applyWorldState = useWorldStore((s) => s.applyWorldState);
   const setConnectionStatus = useWorldStore((s) => s.setConnectionStatus);
   const markStaleObjects = useWorldStore((s) => s.markStaleObjects);
-  const selectedObjectId = useWorldStore((s) => s.selectedObjectId);
 
   const [narration, setNarration] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
-  const [gameControlArmed, setGameControlArmed] = useState(false);
-  const [gestureLog, setGestureLog] = useState<GestureLogEntry[]>([]);
+  const [keyState, setKeyState] = useState<KeyState | null>(null);
+  const [keysConnectionStatus, setKeysConnectionStatus] = useState<ConnectionStatus>("disconnected");
 
   const cartesiaRef = useRef<CartesiaAdapter | null>(null);
   const convexRef = useRef(createConvexSessionAdapter());
-  const gameControlRef = useRef<GameControlAdapter | null>(null);
-  const gestureDetectorRef = useRef<GestureDetector | null>(null);
-  const gestureLogIdRef = useRef(0);
   const prevStatesRef = useRef<Record<string, RenderObject["trackingState"]>>({});
 
   if (!cartesiaRef.current) {
     cartesiaRef.current = new CartesiaAdapter(undefined, setNarration);
-  }
-  if (!gameControlRef.current) {
-    gameControlRef.current = new GameControlAdapter();
-  }
-  if (!gestureDetectorRef.current) {
-    gestureDetectorRef.current = new GestureDetector();
   }
 
   useEffect(() => {
     cartesiaRef.current?.setMuted(muted);
   }, [muted]);
 
-  useEffect(() => {
-    gameControlRef.current?.setArmed(gameControlArmed);
-    // Selecting a different object (or flipping Armed) with stale velocity
-    // history would fire a false gesture from the jump in position.
-    gestureDetectorRef.current?.reset();
-  }, [gameControlArmed, selectedObjectId]);
-
-  // Watches the currently-selected object's raw world position for a
-  // left/right/jump/duck gesture and, if game control is armed, sends the
-  // mapped key to the local OS-keystroke proxy. Lost tracking never fires a
-  // gesture — a fabricated position must not control anything.
-  const handleWorldState = (state: WorldState) => {
-    const selectedId = useWorldStore.getState().selectedObjectId;
-    if (!selectedId) return;
-    const obj = state.objects.find((o) => o.id === selectedId);
-    if (!obj || obj.tracking_state === "lost") return;
-
-    const gesture = gestureDetectorRef.current?.feed(obj.position_m.x, obj.position_m.z, state.timestamp_ms);
-    if (!gesture) return;
-
-    const key = GESTURE_KEY_MAP[gesture];
-    void gameControlRef.current?.fire(key).then((result) => {
-      if (!result) return;
-      setGestureLog((log) => {
-        const entry: GestureLogEntry = {
-          id: gestureLogIdRef.current++,
-          gesture,
-          key: result.key,
-          mocked: result.mocked,
-          atMs: Date.now(),
-        };
-        return [entry, ...log].slice(0, 6);
-      });
-    });
-  };
-
   // Connect to whichever source the mode toggle selects. Mock mode needs no
   // backend at all; live mode talks the real /ws/world contract.
   useEffect(() => {
     if (mode === "mock") {
       setConnectionStatus("connected");
-      const stop = startMockWorld((state) => {
-        applyWorldState(state, 0);
-        handleWorldState(state);
-      });
+      const stop = startMockWorld((state) => applyWorldState(state, 0));
       return stop;
     }
 
     const disconnect = connectWorldSocket(WS_URL, {
-      onState: (state, latencyMs) => {
-        applyWorldState(state, latencyMs);
-        handleWorldState(state);
-      },
+      onState: (state, latencyMs) => applyWorldState(state, latencyMs),
       onStatus: setConnectionStatus,
     });
     return disconnect;
   }, [mode, applyWorldState, setConnectionStatus]);
+
+  // Visualizes Agent 3's tilt_keys held-key state (/ws/keys). This is
+  // display-only — the real OS keystroke injection happens entirely in that
+  // backend via pynput; the frontend never injects keys itself.
+  useEffect(() => {
+    const disconnect = connectKeysSocket(KEYS_WS_URL, {
+      onState: setKeyState,
+      onStatus: setKeysConnectionStatus,
+    });
+    return disconnect;
+  }, []);
 
   // Mark objects lost if nothing's arrived in 2s, and narrate tracking-state
   // transitions (not every frame — only on change, and debounced per event).
@@ -159,12 +119,7 @@ export default function App() {
       <div className="hud-left">
         <StatusPanel />
         <ObjectList />
-        <GameControlPanel
-          armed={gameControlArmed}
-          onToggleArmed={() => setGameControlArmed((a) => !a)}
-          controllingObjectId={selectedObjectId}
-          log={gestureLog}
-        />
+        <HeldKeysPanel connectionStatus={keysConnectionStatus} keyState={keyState} />
         <CameraHealthPanel />
       </div>
 

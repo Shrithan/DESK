@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0.0",
+  "units": "mm",
+  "notes": [
+    "Body dimensions are Apple published specs (height x width x depth, bare phone, no case).",
+    "camera_notch_* is a deliberately oversized keep-out window measured from the camera corner (top-left when viewing the back of the phone). Leaked/mockup data puts the 14 Pro Max bump at ~37-40 mm square; verify with calipers before printing.",
+    "control_side_wall_mm limits how far the cradle side wall climbs on the right-hand edge (viewed from front) so it does not press the 16 Pro Camera Control button. Verify on the real phone."
+  ],
+  "models": {
+    "iphone_14_pro_max": {
+      "height_mm": 160.7,
+      "width_mm": 77.6,
+      "depth_mm": 7.85,
+      "camera_notch_w_mm": 54.0,
+      "camera_notch_h_mm": 56.0,
+      "control_side_wall_mm": 22.0,
+      "main_camera": {"megapixels": 48, "equiv_focal_mm": 24, "aperture": "f/1.78"}
+    },
+    "iphone_16_pro": {
+      "height_mm": 149.6,
+      "width_mm": 71.5,
+      "depth_mm": 8.25,
+      "camera_notch_w_mm": 54.0,
+      "camera_notch_h_mm": 56.0,
+      "control_side_wall_mm": 12.0,
+      "main_camera": {"megapixels": 48, "equiv_focal_mm": 24, "aperture": "f/1.78"}
+    }
+  },
+  "rig": {
+    "cam_1": "iphone_14_pro_max",
+    "cam_2": "iphone_14_pro_max",
+    "cam_3": "iphone_16_pro"
+  }
+}

@@ -277,6 +277,45 @@ def print_parts() -> dict[str, tuple[Manifold, int]]:
     }
 
 
+def _footprint_clear(placed: list[Manifold], cand: Manifold, gap: float) -> bool:
+    """True if cand stays >= gap away (in x/y) from every placed part (nesting into gaps is allowed)."""
+    for q in placed:
+        for dx, dy in ((gap, 0), (-gap, 0), (0, gap), (0, -gap), (0, 0)):
+            if (q.translate([dx, dy, 0]) ^ cand).volume() > 1e-3:
+                return False
+    return True
+
+
+def pack_plate(parts: list[Manifold], bed: float, gap: float = 4.0, step: float = 4.0) -> Manifold | None:
+    """Greedy bottom-left packing on a square bed; small parts may nest in the gaps of bigger ones."""
+    parts = sorted(parts, key=lambda m: -m.volume())
+    placed: list[Manifold] = []
+    lo, hi = -bed / 2 + 2, bed / 2 - 2
+    for part in parts:
+        done = None
+        for spin in (0, 90, 180, 270):
+            r = part.rotate([0, 0, float(spin)])
+            x0, y0, _, x1, y1, _ = r.bounding_box()
+            for y in np.arange(lo, hi - (y1 - y0) + 1e-9, step):
+                for x in np.arange(lo, hi - (x1 - x0) + 1e-9, step):
+                    cand = r.translate([x - x0, y - y0, 0])
+                    if _footprint_clear(placed, cand, gap):
+                        done = cand
+                        break
+                if done is not None:
+                    break
+            if done is not None:
+                break
+        if done is None:
+            return None
+        placed.append(done)
+    plate = Manifold()
+    for q in placed:
+        plate = plate + q
+    x0, y0, _, x1, y1, _ = plate.bounding_box()
+    return plate.translate([-(x0 + x1) / 2, -(y0 + y1) / 2, 0])
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=HERE / "stl")
@@ -288,6 +327,17 @@ def main() -> None:
         e = t.bounding_box.extents
         print(f"print_{name}.stl  x{qty}  {e[0]:.0f} x {e[1]:.0f} x {e[2]:.0f} mm  {t.volume / 1000:.1f} cm^3  "
               f"watertight={t.is_watertight}")
+    pp = print_parts()
+    for fname, names, bed in (("print_plate_base_elbow_head.stl", ["base", "elbow", "head"], 250.0),
+                              ("print_plate_elbow_head.stl", ["elbow", "head"], 214.0)):
+        plate = pack_plate([pp[n][0] for n in names], bed)
+        if plate is None:
+            print(f"{fname}: does not fit a {bed:.0f} mm bed")
+            continue
+        t = to_trimesh(plate)
+        t.export(args.out / fname)
+        e = t.bounding_box.extents
+        print(f"{fname}  {e[0]:.0f} x {e[1]:.0f} x {e[2]:.0f} mm  {t.volume / 1000:.1f} cm^3  watertight={t.is_watertight}")
     whole = Manifold()
     for p in assembled().values():
         whole = whole + p

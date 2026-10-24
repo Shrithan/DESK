@@ -31,6 +31,19 @@ Times are from PrusaSlicer 2.7 with generic fast settings (PLA, 0.2 mm layers, 3
 | `stl/print_elbow.stl` | 1 | 75 × 40 × 75 | organic/tree | ~2 h | ~50 g |
 | `stl/print_head.stl` | 1 | 80 × 71 × 107 | organic/tree | ~2 h 40 m | ~73 g |
 
+### Combined plates (fewer jobs)
+| file | contains | fits | standard (0.2 mm, 3 walls) | draft (0.28 mm, 2 walls, 10 %) |
+|---|---|---|---|---|
+| `stl/print_plate_base_elbow_head.stl` | base + elbow + head, small parts nested in the base's gaps | **P1S only** (244 × 192 mm) | ~7 h 30 m | ~5 h 40 m: **over the 3.5 h cap** |
+| `stl/print_plate_elbow_head.stl` | elbow + head | 5M or P1S | ~4 h 45 m | ~3 h 35 m: borderline |
+| `stl/print_base.stl` | base | 5M or P1S | ~2 h 25 m | ~1 h 50 m |
+
+These are pessimistic PrusaSlicer estimates. Drop the file into Bambu Studio and check its time against the cap before submitting.
+- **Fastest route that fits the rules:** two jobs, elbow + head (draft) and the base (draft), printed in parallel by two teammates.
+- **The all-in-one plate** is only worth submitting if Bambu Studio says it's under 3.5 h including prep.
+
+Use tree supports for any plate that contains the elbow or head. Draft settings are fine for these parts: the joints are pinned by bolts and nothing here carries much load.
+
 **Total:** 10 jobs, about 20 h of printer time and 0.75 kg of PLA.
 - Every part fits the Adventurer 5M (220 mm) and the P1S.
 - Spread the jobs across teammates, since each person can only have one job in the queue.

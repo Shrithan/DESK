@@ -11,9 +11,10 @@ dependencies = ["numpy>=1.26,<3", "opencv-python>=4.10,<5"]
 [project.optional-dependencies]
 test = ["pytest>=8,<10"]
 ai = ["ultralytics>=8.3,<9"]
+joystick = ["pynput>=1.7", "pydantic>=2", "websockets>=12"]
 
 [tool.setuptools.packages.find]
-include = ["vision*", "tracking2d*", "camera*", "calibration*"]
+include = ["vision*", "tracking2d*", "camera*", "calibration*", "tilt_joystick*", "backend*", "shared*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

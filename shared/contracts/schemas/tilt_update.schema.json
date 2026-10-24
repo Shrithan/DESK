@@ -1,0 +1,64 @@
+{
+  "description": "One tilt measurement of the can, produced by the vision agent.",
+  "properties": {
+    "can_found": {
+      "description": "false means the whole measurement is unavailable; angles are ignored.",
+      "title": "Can Found",
+      "type": "boolean"
+    },
+    "forward_deg": {
+      "anyOf": [
+        {
+          "maximum": 180.0,
+          "minimum": -180.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "+ = top leans away from the user, - = toward the user. null = unavailable.",
+      "title": "Forward Deg"
+    },
+    "right_deg": {
+      "anyOf": [
+        {
+          "maximum": 180.0,
+          "minimum": -180.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "+ = top leans right, - = leans left. null = unavailable.",
+      "title": "Right Deg"
+    },
+    "schema_version": {
+      "default": "1.0.0",
+      "description": "Semantic version of this contract. Optional on the wire; defaults to the current version.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "timestamp_ms": {
+      "description": "Unix epoch milliseconds when the measurement was taken.",
+      "exclusiveMinimum": 0,
+      "title": "Timestamp Ms",
+      "type": "integer"
+    },
+    "type": {
+      "const": "tilt_update",
+      "default": "tilt_update",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "timestamp_ms",
+    "forward_deg",
+    "right_deg",
+    "can_found"
+  ],
+  "title": "TiltUpdate",
+  "type": "object"
+}

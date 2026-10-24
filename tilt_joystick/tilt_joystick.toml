@@ -1,0 +1,43 @@
+# Can-tilt joystick settings. Every field is optional; defaults are in tilt_joystick/config.py.
+latency_budget_ms = 90.0
+
+[detector]
+weights = "outputs/models/desk-yoloe-s.pt"   # python -m vision.prepare_model --size s
+prompts = ["soda can", "aluminum can"]
+fallback_weights = "yolov8s-worldv2.pt"
+confidence = 0.15
+image_size = 480        # lower = faster; 416-640
+device = "auto"         # auto | mps | cuda | cpu
+detect_every = 1        # 2-3 if fps < 30: optical flow carries the mask between model runs
+tracker = "bytetrack.yaml"
+
+[tilt]
+neutral_s = 1.0
+neutral_max_jitter = 0.04
+centroid_weight = 1.0
+shape_weight = 0.8
+full_scale = 1.0        # can radii of shift for a full push (~22 deg from above; press at ~7 deg). Smaller = more sensitive
+area_min_ratio = 0.55
+area_max_ratio = 2.2
+max_jump = 0.9
+recenter_after_s = 1.0
+recenter_mag = 0.12
+recenter_max = 0.5
+recenter_rate = 0.5
+hold_ms = 250
+
+[filter]               # One Euro: min_cutoff lower = less jitter at rest; beta higher = less lag when moving
+min_cutoff_hz = 1.5
+beta = 4.0
+d_cutoff_hz = 1.0
+
+[keys]
+press = 0.35
+release = 0.25
+sector_hysteresis_deg = 10.0
+diagonals = true
+up = "w"
+left = "a"
+down = "s"
+right = "d"
+pause_hotkey = "f8"

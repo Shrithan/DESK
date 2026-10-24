@@ -1,0 +1,39 @@
+{
+  "description": "Control message for the tilt-to-keys mapper (from UI, voice, or CLI).",
+  "properties": {
+    "command": {
+      "enum": [
+        "recalibrate",
+        "enable",
+        "disable",
+        "toggle"
+      ],
+      "title": "Command",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "1.0.0",
+      "description": "Semantic version of this contract. Optional on the wire; defaults to the current version.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "timestamp_ms": {
+      "description": "Unix epoch milliseconds when the measurement was taken.",
+      "exclusiveMinimum": 0,
+      "title": "Timestamp Ms",
+      "type": "integer"
+    },
+    "type": {
+      "const": "tilt_command",
+      "default": "tilt_command",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "timestamp_ms",
+    "command"
+  ],
+  "title": "TiltCommand",
+  "type": "object"
+}

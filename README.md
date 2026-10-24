@@ -13,6 +13,19 @@ page is intentionally one webcam. Earlier dual-camera setup below is historical.
 Agent 2's selection, detection, tracking, correspondence and local demonstration
 adapter. No shared backend or calibration contracts are replaced by this prototype.
 
+## Can-tilt joystick → held W/A/S/D
+
+Tilt a soda can like a joystick. Tilting presses a key, holding the tilt holds it, and returning upright releases it. It uses the overhead camera.
+
+Full guide: [`docs/can_joystick.md`](docs/can_joystick.md).
+
+```bash
+pip install -e '.[ai,joystick]'
+python -m vision.prepare_model --size s                    # once: outputs/models/desk-yoloe-s.pt
+python -m tilt_joystick --camera 0 --dry-run --calibrate-direction   # logs key events, presses nothing
+python -m tilt_joystick --camera 0                         # real keys; macOS needs Accessibility permission
+```
+
 ## Calibrated overhead mapping (metres)
 
 Calibrate the overhead webcam with agent 1's tools, then start with

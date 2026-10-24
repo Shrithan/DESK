@@ -1,5 +1,5 @@
 import { Canvas } from "@react-three/fiber";
-import { Grid, OrbitControls, GizmoHelper, GizmoViewport } from "@react-three/drei";
+import { ContactShadows, Grid, GizmoHelper, GizmoViewport, OrbitControls } from "@react-three/drei";
 import { useWorldStore } from "../store/worldStore";
 import { ObjectMarker } from "./ObjectMarker";
 
@@ -8,32 +8,35 @@ export function Viewport() {
 
   return (
     <Canvas
-      camera={{ position: [1.2, 1.0, 1.2], fov: 50 }}
-      style={{ background: "#121212" }}
+      camera={{ position: [1.3, 1.05, 1.3], fov: 45 }}
+      gl={{ alpha: true, antialias: true }}
+      dpr={[1, 2]}
     >
-      <color attach="background" args={["#121212"]} />
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[2, 3, 2]} intensity={0.8} />
+      <ambientLight intensity={0.5} />
+      <directionalLight position={[2, 3.5, 2]} intensity={1.1} color="#dce8f5" />
+      <pointLight position={[-1.5, 1, -1.5]} intensity={0.25} color="#38bdf8" />
 
       <Grid
         args={[2, 2]}
         cellSize={0.1}
-        cellColor="#2a2a2a"
+        cellColor="#20262f"
         sectionSize={0.5}
-        sectionColor="#3a3a3a"
+        sectionColor="#2f3a47"
         fadeDistance={6}
         infiniteGrid
       />
+
+      <ContactShadows position={[0, 0, 0]} opacity={0.55} scale={3} blur={2.2} far={1.5} resolution={512} color="#000000" />
 
       {Object.values(objects).map((obj) => (
         <ObjectMarker key={obj.id} object={obj} />
       ))}
 
-      <axesHelper args={[0.5]} />
-      <OrbitControls makeDefault />
+      <axesHelper args={[0.4]} />
+      <OrbitControls makeDefault enableDamping dampingFactor={0.08} />
 
       <GizmoHelper alignment="bottom-right" margin={[60, 60]}>
-        <GizmoViewport axisColors={["#ff4d4d", "#4dff88", "#4d88ff"]} labelColor="white" />
+        <GizmoViewport axisColors={["#f87171", "#4ade80", "#38bdf8"]} labelColor="white" />
       </GizmoHelper>
     </Canvas>
   );

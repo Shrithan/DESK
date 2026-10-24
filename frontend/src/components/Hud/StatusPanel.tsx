@@ -1,10 +1,11 @@
 import { useWorldStore } from "../../store/worldStore";
 import { useFps } from "../../hooks/useFps";
+import { Switch } from "./Switch";
 
 const STATUS_COLOR: Record<string, string> = {
   connected: "#4ade80",
-  connecting: "#facc15",
-  disconnected: "#9ca3af",
+  connecting: "#fbbf24",
+  disconnected: "#8b98a5",
   error: "#f87171",
 };
 
@@ -19,9 +20,11 @@ export function StatusPanel() {
 
   return (
     <div className="hud-panel">
+      <div className="hud-title">Session</div>
+
       <div className="hud-row">
-        <span>Mode</span>
-        <div className="hud-toggle-group">
+        <span>Source</span>
+        <div className="segmented">
           <button className={mode === "mock" ? "active" : ""} onClick={() => setMode("mock")}>
             Mock
           </button>
@@ -33,24 +36,24 @@ export function StatusPanel() {
 
       <div className="hud-row">
         <span>Connection</span>
-        <span style={{ color: STATUS_COLOR[connectionStatus] }}>{connectionStatus}</span>
+        <span className="mono" style={{ color: STATUS_COLOR[connectionStatus] }}>
+          {connectionStatus}
+        </span>
       </div>
 
       <div className="hud-row">
         <span>FPS</span>
-        <span>{fps}</span>
+        <span className="mono">{fps}</span>
       </div>
 
       <div className="hud-row">
         <span>Latency</span>
-        <span>{latencyMs !== null ? `${latencyMs} ms` : "—"}</span>
+        <span className="mono">{latencyMs !== null ? `${latencyMs} ms` : "—"}</span>
       </div>
 
       <div className="hud-row">
         <span>Trails</span>
-        <button className={showTrails ? "active" : ""} onClick={toggleTrails}>
-          {showTrails ? "On" : "Off"}
-        </button>
+        <Switch checked={showTrails} onChange={toggleTrails} label="Toggle trails" />
       </div>
     </div>
   );

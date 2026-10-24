@@ -79,12 +79,14 @@ function CameraTile({
   };
 
   return (
-    <img
-      ref={imgRef}
-      src={placeholderFrameDataUrl(cameraId, seed)}
-      alt={cameraId}
-      className="camera-tile"
-      onClick={handleClick}
-    />
+    <div className="camera-tile-wrap">
+      <img
+        ref={imgRef}
+        src={placeholderFrameDataUrl(cameraId, seed)}
+        alt={cameraId}
+        className="camera-tile"
+        onClick={handleClick}
+      />
+    </div>
   );
 }

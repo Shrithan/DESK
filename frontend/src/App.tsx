@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Viewport } from "./components/Viewport";
+import { ViewportErrorBoundary } from "./components/ViewportErrorBoundary";
+import { Header } from "./components/Header";
 import { StatusPanel } from "./components/Hud/StatusPanel";
+import { SpeakerIcon } from "./components/Hud/SpeakerIcon";
 import { ObjectList } from "./components/Hud/ObjectList";
 import { CameraHealthPanel } from "./components/Hud/CameraHealthPanel";
 import { CameraPreviewPanel } from "./components/CameraSelect/CameraPreviewPanel";
@@ -89,8 +92,12 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="viewport-area">
-        <Viewport />
+        <ViewportErrorBoundary>
+          <Viewport />
+        </ViewportErrorBoundary>
       </div>
+
+      <Header />
 
       <div className="hud-left">
         <StatusPanel />
@@ -103,8 +110,11 @@ export default function App() {
       </div>
 
       <div className="narration-banner">
-        <button onClick={() => setMuted((m) => !m)}>{muted ? "Unmute" : "Mute"}</button>
-        {narration && <span>{narration}</span>}
+        <button className="icon-btn" onClick={() => setMuted((m) => !m)} aria-label={muted ? "Unmute" : "Mute"}>
+          <SpeakerIcon muted={muted} />
+        </button>
+        <span className="narration-dot" />
+        <span>{narration ?? "Listening for tracking events…"}</span>
       </div>
     </div>
   );

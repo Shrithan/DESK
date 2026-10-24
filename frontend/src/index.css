@@ -1,3 +1,21 @@
+:root {
+  --bg: #0a0d12;
+  --surface: rgba(18, 21, 27, 0.72);
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --border: rgba(255, 255, 255, 0.09);
+  --text: #e6edf3;
+  --text-dim: #8b98a5;
+  --text-faint: #5b6673;
+  --accent: #38bdf8;
+  --accent-dim: rgba(56, 189, 248, 0.18);
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --radius: 12px;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -5,9 +23,9 @@
 html, body, #root {
   margin: 0;
   height: 100%;
-  background: #121212;
-  color: #e5e7eb;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
 }
 
 .app-shell {
@@ -20,120 +38,325 @@ html, body, #root {
 .viewport-area {
   position: absolute;
   inset: 0;
+  background: radial-gradient(circle at 50% 38%, #151a21 0%, #0a0d12 72%);
 }
+
+.viewport-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  padding: 0 40px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+/* ---------- Header ---------- */
+
+.app-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  z-index: 20;
+  background: linear-gradient(to bottom, rgba(10, 13, 18, 0.85), transparent);
+  pointer-events: none;
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-brand-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px 2px var(--accent-dim);
+}
+
+.app-brand-name {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+}
+
+.app-brand-sub {
+  color: var(--text-faint);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.app-session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+/* ---------- HUD panels ---------- */
 
 .hud-left,
 .hud-right {
   position: absolute;
-  top: 16px;
+  top: 72px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  width: 280px;
+  gap: 12px;
+  width: 270px;
   z-index: 10;
+  max-height: calc(100vh - 100px);
 }
 
 .hud-left { left: 16px; }
 .hud-right { right: 16px; }
 
 .hud-panel {
-  background: rgba(20, 20, 20, 0.85);
-  border: 1px solid #2a2a2a;
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 12px;
-  backdrop-filter: blur(6px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  font-size: 12.5px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
 }
 
 .hud-title {
   font-weight: 600;
-  margin-bottom: 6px;
-  color: #9ca3af;
+  margin-bottom: 8px;
+  color: var(--text-faint);
   text-transform: uppercase;
   font-size: 10px;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
 }
 
 .hud-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 2px 0;
+  padding: 4px 0;
+  color: var(--text-dim);
+}
+
+.hud-row > span:first-child {
+  color: var(--text-dim);
+}
+
+.hud-row .mono,
+.app-session .mono {
+  font-family: var(--font-mono);
 }
 
 .hud-muted {
-  color: #6b7280;
+  color: var(--text-faint);
   font-size: 11px;
+  margin-top: 4px;
 }
 
-.hud-toggle-group button,
-.hud-row button {
-  background: #1f2937;
-  border: 1px solid #374151;
-  color: #9ca3af;
-  border-radius: 4px;
-  padding: 2px 8px;
+/* Segmented control (Mock / Live) */
+
+.segmented {
+  display: flex;
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.segmented button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 3px 10px;
   font-size: 11px;
+  font-family: var(--font-ui);
   cursor: pointer;
-  margin-left: 4px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.hud-toggle-group button.active,
-.hud-row button.active {
-  background: #2563eb;
-  color: white;
-  border-color: #2563eb;
+.segmented button.active {
+  background: var(--accent);
+  color: #06121a;
+  font-weight: 600;
 }
+
+/* Boolean pill switch */
+
+.switch {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease;
+}
+
+.switch.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+.switch.on .switch-knob {
+  transform: translateX(14px);
+}
+
+/* Object list */
 
 .hud-object-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 2px;
-  border-radius: 4px;
+  padding: 6px 6px;
+  border-radius: 8px;
   cursor: pointer;
+  transition: background 0.1s ease;
 }
 
-.hud-object-row:hover { background: rgba(255, 255, 255, 0.05); }
-.hud-object-row.selected { background: rgba(37, 99, 235, 0.25); }
+.hud-object-row:hover { background: var(--surface-2); }
+.hud-object-row.selected { background: var(--accent-dim); }
+
+.hud-object-id {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
 
 .hud-badge {
   font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
-.hud-badge-tracked { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
-.hud-badge-predicted { background: rgba(250, 204, 21, 0.2); color: #facc15; }
-.hud-badge-lost { background: rgba(248, 113, 113, 0.2); color: #f87171; }
+.hud-badge-tracked { background: rgba(74, 222, 128, 0.16); color: var(--ok); }
+.hud-badge-predicted { background: rgba(251, 191, 36, 0.16); color: var(--warn); }
+.hud-badge-lost { background: rgba(248, 113, 113, 0.16); color: var(--bad); }
+
+/* Camera selection */
 
 .camera-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+}
+
+.camera-tile-wrap {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  transition: border-color 0.15s ease;
+}
+
+.camera-tile-wrap:hover {
+  border-color: var(--accent);
 }
 
 .camera-tile {
+  display: block;
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: contain;
-  background: black;
-  border-radius: 4px;
+  background: #05070a;
   cursor: crosshair;
 }
 
+/* Narration banner */
+
 .narration-banner {
   position: absolute;
-  bottom: 16px;
+  bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: rgba(20, 20, 20, 0.85);
-  border: 1px solid #2a2a2a;
-  border-radius: 20px;
-  padding: 6px 14px;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 16px;
   font-size: 12px;
+  color: var(--text-dim);
   z-index: 10;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+}
+
+.narration-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.icon-btn:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* Object label in 3D scene */
+
+.object-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(10, 13, 18, 0.7);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  transform: translateY(-22px);
+  pointer-events: none;
 }

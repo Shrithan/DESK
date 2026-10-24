@@ -4,6 +4,7 @@
   "notes": [
     "Body dimensions are Apple published specs (height x width x depth, bare phone, no case).",
     "camera_notch_* is a deliberately oversized keep-out window measured from the camera corner (top-left when viewing the back of the phone). Leaked/mockup data puts the 14 Pro Max bump at ~37-40 mm square; verify with calipers before printing.",
+    "edge_mount adds a second 1/4\"-20 nut on the long edge opposite the camera so the overhead camera can hang from a boom arm.",
     "control_side_wall_mm limits how far the cradle side wall climbs on the right-hand edge (viewed from front) so it does not press the 16 Pro Camera Control button. Verify on the real phone."
   ],
   "models": {
@@ -23,12 +24,13 @@
       "camera_notch_w_mm": 54.0,
       "camera_notch_h_mm": 56.0,
       "control_side_wall_mm": 12.0,
+      "edge_mount": true,
       "main_camera": {"megapixels": 48, "equiv_focal_mm": 24, "aperture": "f/1.78"}
     }
   },
   "rig": {
-    "cam_1": "iphone_14_pro_max",
-    "cam_2": "iphone_14_pro_max",
-    "cam_3": "iphone_16_pro"
+    "cam_1": {"model": "iphone_16_pro", "placement": "overhead, looking straight down, ~1.0 m above table centre, hangs from boom arm via edge mount"},
+    "cam_2": {"model": "iphone_14_pro_max", "placement": "side tripod, 30-45 deg elevation, 0.6-1.0 m from centre"},
+    "cam_3": {"model": "iphone_14_pro_max", "placement": "side tripod, 90-120 deg around the table from cam_2"}
   }
 }

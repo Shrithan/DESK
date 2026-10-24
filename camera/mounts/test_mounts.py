@@ -27,3 +27,23 @@ def test_camera_corner_is_open():
         w, h = p.width + 2 * CLEARANCE, p.height + 2 * CLEARANCE
         keep_out = Manifold.cube([p.notch_w - 1, p.notch_h - 1, 40]).translate([w - p.notch_w + 1, h - p.notch_h + 1, -30])
         assert (cradle ^ keep_out).volume() < 1e-6, p.name
+
+
+def test_edge_mount_nut_fits_and_bolt_hole_is_blind():
+    from generate_mounts import EDGE_BLOCK, NUT_AF, NUT_FLOOR, NUT_T, WALL_T, LIP_T, PLATE_T, EDGE_BLOCK_BACK
+    import math
+    p = load_phones()["iphone_16_pro"]
+    assert p.edge_mount
+    cradle = build_cradle(p)
+    h = p.height + 2 * CLEARANCE
+    z_front = p.depth + CLEARANCE + LIP_T
+    x_out = -WALL_T - EDGE_BLOCK[0]
+    yc = h * 0.30 + EDGE_BLOCK[1] / 2
+    zc = (-PLATE_T - EDGE_BLOCK_BACK + z_front) / 2
+    # A real 7/16" nut (11.11 AF, 5.6 thick) sits in the pocket without touching plastic.
+    r = 11.11 / 2 / math.cos(math.pi / 6)
+    nut = Manifold.cylinder(5.6, r, r, 6).rotate([0, 90, 0]).translate([x_out + NUT_FLOOR + 0.65, yc, zc])
+    assert (cradle ^ nut).volume() < 1e-6
+    # The wall between the bolt hole and the phone is solid.
+    wall_probe = Manifold.cube([WALL_T, 1, 1]).translate([-WALL_T, yc - 0.5, zc - 0.5])
+    assert abs((cradle ^ wall_probe).volume() - WALL_T) < 1e-6

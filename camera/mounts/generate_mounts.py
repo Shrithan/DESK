@@ -52,6 +52,12 @@ NUT_FLOOR = 2.0  # material between the nut and the outer boss face
 BAND_POST = (5.0, 4.0)  # (x protrusion, y length) of the elastic band posts
 BAND_GAP = 6.0  # channel the band sits in
 
+# Optional edge mount: a second 1/4"-20 nut on the long edge opposite the camera, so the
+# cradle can hang from a boom arm with the camera looking straight down at the table.
+EDGE_BLOCK = (12.0, 28.0)  # (x protrusion beyond the wall, y length)
+EDGE_BLOCK_BACK = 6.0  # how far the block extends behind the back plate
+EDGE_RIB_X = 25.0  # rib behind the plate that ties the block into it
+
 
 @dataclass(frozen=True)
 class Phone:
@@ -62,6 +68,7 @@ class Phone:
     notch_w: float
     notch_h: float
     control_side_wall: float
+    edge_mount: bool = False
 
     @classmethod
     def from_json(cls, name: str, d: dict) -> "Phone":
@@ -73,6 +80,7 @@ class Phone:
             notch_w=d["camera_notch_w_mm"],
             notch_h=d["camera_notch_h_mm"],
             control_side_wall=d["control_side_wall_mm"],
+            edge_mount=d.get("edge_mount", False),
         )
 
 
@@ -114,7 +122,9 @@ def build_cradle(phone: Phone, case_t: float = 0.0) -> Manifold:
     # Tripod boss near the plate's centre of area (below the camera notch).
     bx, by = w / 2, (h - phone.notch_h) * 0.55
     boss = cylinder(bx, by, -PLATE_T - BOSS_H, BOSS_H, BOSS_R)
-    cradle = cradle + boss
+    # Teardrop toward -Y so the boss prints without supports when standing on the USB-C end.
+    tip = cylinder(bx, by - BOSS_R * math.sqrt(2), -PLATE_T - BOSS_H, BOSS_H, 0.01, segments=8)
+    cradle = cradle + (boss + tip).hull()
     nut_r = NUT_AF / 2 / math.cos(math.pi / 6)
     z_floor = -PLATE_T - BOSS_H + NUT_FLOOR
     # Hex channel open toward the phone side: drop the nut in, the phone keeps it captive.
@@ -127,7 +137,51 @@ def build_cradle(phone: Phone, case_t: float = 0.0) -> Manifold:
         cradle = cradle + box(-WALL_T - BAND_POST[0], y0, -PLATE_T, -WALL_T, y0 + BAND_POST[1], 0)
         cradle = cradle + box(w + WALL_T, y0, -PLATE_T, w + WALL_T + BAND_POST[0], y0 + BAND_POST[1], 0)
 
+    if phone.edge_mount:
+        cradle = add_edge_mount(cradle, h, z_front)
+
     return cradle
+
+
+def add_edge_mount(cradle: Manifold, h: float, z_front: float) -> Manifold:
+    """Nut block on the x = 0 edge; the bolt axis is along +X, the nut slides in from the back."""
+    ex, ey = EDGE_BLOCK
+    x_out = -WALL_T - ex
+    y0 = h * 0.30
+    y1 = y0 + ey
+    z0 = -PLATE_T - EDGE_BLOCK_BACK
+    cradle = cradle + box(x_out, y0, z0, 0, y1, z_front) + box(0, y0, z0, EDGE_RIB_X, y1, -PLATE_T)
+    # 45-degree gussets under the block and rib so they print without supports standing on the USB-C end.
+    cradle = cradle + (box(x_out, y0, z0, -WALL_T, y0 + 0.01, z_front) + box(-WALL_T, y0 - ex, z0, -WALL_T + 0.01, y0 + 0.01, z_front)).hull()
+    cradle = cradle + (box(x_out, y0, z0, EDGE_RIB_X, y0 + 0.01, -PLATE_T) + box(x_out, y0 - EDGE_BLOCK_BACK, -PLATE_T - 0.01, EDGE_RIB_X, y0 + 0.01, -PLATE_T)).hull()
+
+    yc, zc = (y0 + y1) / 2, (z0 + z_front) / 2
+    nut_r = NUT_AF / 2 / math.cos(math.pi / 6)
+    nut_x = x_out + NUT_FLOOR + 0.5
+    # Hex prism with its axis along X; flats face +/-Y so the slot below can be exactly NUT_AF wide.
+    hex_pocket = Manifold.cylinder(NUT_T, nut_r, nut_r, 6).rotate([0, 90, 0]).translate([nut_x, yc, zc])
+    slot = box(nut_x, yc - NUT_AF / 2, z0 - 1, nut_x + NUT_T, yc + NUT_AF / 2, zc)
+    # Blind hole: stops 1 mm short of the wall so a long tripod screw can never touch the phone.
+    bolt = Manifold.cylinder(-x_out - WALL_T, BOLT_D / 2, BOLT_D / 2, 64).rotate([0, 90, 0]).translate([x_out - 1, yc, zc])
+    return cradle - hex_pocket - slot - bolt
+
+
+def print_oriented(m: Manifold) -> Manifold:
+    """Stand the cradle on its USB-C end (mount +Y becomes build +Z), sitting on the bed at z = 0."""
+    m = m.rotate([90, 0, 0])
+    x0, y0, z0, x1, y1, _ = m.bounding_box()
+    return m.translate([-(x0 + x1) / 2, -(y0 + y1) / 2, -z0])
+
+
+def print_plate(parts: list[Manifold], gap: float = 12.0) -> Manifold:
+    """Lay print-oriented parts side by side along X, centred on the bed origin."""
+    plate, x = Manifold(), 0.0
+    for part in parts:
+        x0, _, _, x1, _, _ = part.bounding_box()
+        plate = plate + part.translate([x - x0, 0, 0])
+        x += (x1 - x0) + gap
+    x0, y0, _, x1, y1, _ = plate.bounding_box()
+    return plate.translate([-(x0 + x1) / 2, -(y0 + y1) / 2, 0])
 
 
 def to_trimesh(m: Manifold) -> trimesh.Trimesh:
@@ -149,10 +203,21 @@ def main() -> None:
     args = ap.parse_args()
 
     args.out.mkdir(parents=True, exist_ok=True)
-    for name, phone in load_phones().items():
-        mesh = to_trimesh(build_cradle(phone, args.case))
-        suffix = f"_case{args.case:g}mm" if args.case else ""
-        path = args.out / f"cradle_{name}{suffix}.stl"
+    suffix = f"_case{args.case:g}mm" if args.case else ""
+    phones = load_phones()
+    cradles = {name: build_cradle(phone, args.case) for name, phone in phones.items()}
+    outputs = {f"cradle_{name}{suffix}.stl": c for name, c in cradles.items()}
+
+    # Ready-to-slice plates, one per printer-queue submission (parts already standing upright).
+    rig = json.loads((HERE / "phone_models.json").read_text())["rig"]
+    count = {name: sum(cam["model"] == name for cam in rig.values()) for name in phones}
+    for name, n in count.items():
+        for k in sorted({1, n} - {0}):
+            outputs[f"print_plate_{k}x_{name}{suffix}.stl"] = print_plate([print_oriented(cradles[name])] * k)
+
+    for filename, m in outputs.items():
+        mesh = to_trimesh(m)
+        path = args.out / filename
         mesh.export(path)
         ext = mesh.bounding_box.extents
         print(f"{path.relative_to(HERE.parent.parent)}  watertight={mesh.is_watertight}  "

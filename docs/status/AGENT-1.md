@@ -13,7 +13,7 @@ python -m calibration extrinsics --square-mm 20 \
 ```
 
 ## Working
-- **Hardware:** a self-standing 1.0 × 0.6 × 0.5 m PVC frame with three printed C270 clamp mounts that have their aim built in. Includes the parts list, cut list, renders, and print files that fit the Cal Hacks queue (each mount about 1h40m–2h).
+- **Hardware:** a self-standing 1.0 × 0.6 × 0.7 m PVC frame with three printed C270 clamp mounts that have their aim built in (side cameras in portrait). All three cameras share about 43 × 23 cm up to 15 cm tall, where the old 0.5 m layout shared 5 × 9 cm (`tools/coverage.py`). Includes the parts list, cut list, renders, and print files that fit the Cal Hacks queue (each mount about 2–2h40m).
 - **Ingest:**
   - USB, recorded-clip and synthetic sources.
   - Exact camera identity on macOS: AVFoundation uniqueID → OpenCV index, verified against OpenCV 4.x and 5.x source.

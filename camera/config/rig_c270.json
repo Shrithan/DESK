@@ -4,12 +4,13 @@
   "rig_name": "desk_frame_c270",
   "notes": [
     "Single source of truth for the physical rig: the mount generator (camera/hardware/c270_frame) and the software (nominal poses, synthetic fixtures) both read this file.",
-    "Frame axes = world axes: right-handed, metres, +X right, +Y away from the viewer, +Z up, origin at the centre of the frame footprint on the tabletop. The calibrated world origin is the checkerboard origin; place the board origin here."
+    "Frame axes = world axes: right-handed, metres, +X right, +Y away from the viewer, +Z up, origin at the centre of the frame footprint on the tabletop. The calibrated world origin is the checkerboard origin; place the board origin here.",
+    "Side cameras sit mid-way along the left/right top rails in PORTRAIT: with the C270's narrow lens this doubles the volume all three cameras share (43 x 25 cm up to 15 cm tall at a 0.7 m frame height)."
   ],
   "frame": {
     "width_m": 1.0,
     "depth_m": 0.6,
-    "height_m": 0.5,
+    "height_m": 0.7,
     "tube": "3/4 in schedule 40 PVC (any rigid round tube works; set tube_od_mm)",
     "tube_od_mm": 26.7,
     "overhead_crossbar_y_m": 0.055
@@ -22,32 +23,109 @@
     "fourcc": "MJPG",
     "diagonal_fov_deg": 55.0,
     "fixed_focus": true,
-    "body_mm": {"width": 73.0, "height": 32.0, "depth": 30.0}
+    "body_mm": {
+      "width": 73.0,
+      "height": 32.0,
+      "depth": 30.0
+    }
   },
   "cameras": [
     {
       "id": "cam_1",
       "role": "overhead",
-      "source": {"kind": "uvc", "unique_id": null, "linux_by_path": null, "index": 0, "name_contains": "C270"},
-      "mount": {"tube": "top_crossbar", "tube_axis": "x", "tube_point_m": [0.0, 0.055, 0.5], "lens_offset_from_tube_mm": [0.0, -55.0, -12.0]},
+      "source": {
+        "kind": "uvc",
+        "unique_id": null,
+        "linux_by_path": null,
+        "index": 0,
+        "name_contains": "C270"
+      },
+      "mount": {
+        "tube": "top_crossbar",
+        "tube_axis": "x",
+        "tube_point_m": [
+          0.0,
+          0.055,
+          0.7
+        ],
+        "lens_offset_from_tube_mm": [
+          0.0,
+          -55.0,
+          -12.0
+        ]
+      },
       "look_at_m": null,
-      "look_direction": [0.0, 0.0, -1.0]
+      "look_direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "cam_2",
-      "role": "back_left",
-      "source": {"kind": "uvc", "unique_id": null, "linux_by_path": null, "index": 1, "name_contains": "C270"},
-      "mount": {"tube": "top_back_rail", "tube_axis": "x", "tube_point_m": [-0.4, 0.3, 0.5], "lens_offset_from_tube_mm": [0.0, -55.0, -15.0]},
-      "look_at_m": [0.0, 0.0, 0.0]
+      "role": "left",
+      "source": {
+        "kind": "uvc",
+        "unique_id": null,
+        "linux_by_path": null,
+        "index": 1,
+        "name_contains": "C270"
+      },
+      "mount": {
+        "tube": "top_left_rail",
+        "tube_axis": "y",
+        "tube_point_m": [
+          -0.5,
+          -0.06,
+          0.7
+        ],
+        "lens_offset_from_tube_mm": [
+          -52.9,
+          -6.4,
+          -45.4
+        ]
+      },
+      "look_at_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientation": "portrait"
     },
     {
       "id": "cam_3",
-      "role": "back_right",
-      "source": {"kind": "uvc", "unique_id": null, "linux_by_path": null, "index": 2, "name_contains": "C270"},
-      "mount": {"tube": "top_back_rail", "tube_axis": "x", "tube_point_m": [0.4, 0.3, 0.5], "lens_offset_from_tube_mm": [0.0, -55.0, -15.0]},
-      "look_at_m": [0.0, 0.0, 0.0]
+      "role": "right",
+      "source": {
+        "kind": "uvc",
+        "unique_id": null,
+        "linux_by_path": null,
+        "index": 2,
+        "name_contains": "C270"
+      },
+      "mount": {
+        "tube": "top_right_rail",
+        "tube_axis": "y",
+        "tube_point_m": [
+          0.5,
+          -0.06,
+          0.7
+        ],
+        "lens_offset_from_tube_mm": [
+          52.9,
+          -6.4,
+          -45.4
+        ]
+      },
+      "look_at_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientation": "portrait"
     }
   ],
-  "sync": {"pair_tolerance_ms": 20.0},
+  "sync": {
+    "pair_tolerance_ms": 20.0
+  },
   "calibration_file": "calibration/data/rig_calibration.json"
 }

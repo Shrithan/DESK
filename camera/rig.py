@@ -18,6 +18,10 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_RIG_CONFIG = REPO_ROOT / "camera" / "config" / "rig_c270.json"
 WORLD_UP = np.array([0.0, 0.0, 1.0])
+# Portrait = camera rolled 90 degrees: new image x = old image y (down the slope), new image y = -old x.
+# The C270's long axis then runs along the viewing slope, which doubles the shared coverage of the
+# side cameras (see camera/hardware/c270_frame/README.md). Its closed sleeve end faces up.
+PORTRAIT_ROLL = np.array([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
 
 
 @dataclass(frozen=True)
@@ -124,6 +128,12 @@ def load_rig(path: str | Path = DEFAULT_RIG_CONFIG, overrides: dict[str, dict[st
             direction = np.asarray(c["look_at_m"], float) - lens
         else:
             direction = np.asarray(c["look_direction"], float)
+        R = look_rotation(direction)
+        orientation = c.get("orientation", "landscape")
+        if orientation == "portrait":
+            R = PORTRAIT_ROLL @ R
+        elif orientation != "landscape":
+            raise ValueError(f"{path}: {c['id']}: orientation must be landscape or portrait")
         cams.append(
             CameraSpec(
                 id=c["id"],
@@ -134,7 +144,7 @@ def load_rig(path: str | Path = DEFAULT_RIG_CONFIG, overrides: dict[str, dict[st
                 fps=float(c.get("fps", model["fps"])),
                 fourcc=c.get("fourcc", model.get("fourcc")),
                 lens_position_m=lens,
-                R_world_to_camera=look_rotation(direction),
+                R_world_to_camera=R,
                 mount=m,
                 _dfov=float(model.get("diagonal_fov_deg", 55.0)),
             )

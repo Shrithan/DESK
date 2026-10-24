@@ -83,10 +83,10 @@ for (const c of S.cameras) {
   const fp = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([corners[0], corners[1], corners[2], corners[0], corners[2], corners[3]]),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.10, side: THREE.DoubleSide, depthWrite: false }));
   scene.add(fp);
-  const L = c.lens_m, txt = c.role === 'overhead' ? `${c.id}  C270 overhead\nlooking straight down` : `${c.id}  C270 ${c.role.replace('_', ' ')}\n~46° down, aimed at centre`;
+  const L = c.lens_m, txt = c.role === 'overhead' ? `${c.id}  C270 overhead\nlooking straight down` : `${c.id}  C270 ${c.role.replace('_', ' ')}\nportrait, ~50° down at centre`;
   label(txt, L[0] * 1.25, L[1] + 0.12, L[2] + 0.13, c.role === 'overhead' ? '#b35900' : '#4a3b75');
 }
-label('1.0 m', 0, -0.36, 0.56, '#c0392b', 0.04); label('0.6 m', 0.56, 0, 0.56, '#c0392b', 0.04); label('0.5 m', -0.56, -0.3, 0.25, '#c0392b', 0.04);
+label('1.0 m', 0, -0.36, 0.56, '#c0392b', 0.04); label('0.6 m', 0.56, 0, 0.56, '#c0392b', 0.04); label('0.7 m', -0.56, -0.3, 0.35, '#c0392b', 0.04);
 label('open front: hands reach in here', 0, -0.42, 0.08, '#1d2b3a', 0.05);
 
 window.shoot = (pos, look, fov = 40, showBoard = false) => {

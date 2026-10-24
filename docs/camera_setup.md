@@ -14,7 +14,7 @@ We looked into three iPhones (14 Pro Max ×2, 16 Pro) first:
 
 **Trade-offs:**
 - 720p only.
-- A narrow lens (55° diagonal).
+- A narrow lens (55–60° diagonal), which is why the frame is 0.7 m tall with portrait side cameras.
 - No hardware sync.
 
 The iPhone cradles remain in `camera/hardware/iphone_cradles/` as a fallback.
@@ -22,11 +22,12 @@ The iPhone cradles remain in `camera/hardware/iphone_cradles/` as a fallback.
 ## Hardware
 | cam | camera | position (frame = world axes) | aim |
 |---|---|---|---|
-| `cam_1` | C270 | overhead crossbar, lens ≈ (0, 0, 0.49) m | straight down |
-| `cam_2` | C270 | back top rail, left, lens ≈ (−0.40, 0.25, 0.49) m | ~46° down at the table centre |
-| `cam_3` | C270 | back top rail, right, lens ≈ (0.40, 0.25, 0.49) m | ~46° down at the table centre |
+| `cam_1` | C270 | overhead crossbar, lens ≈ (0, 0, 0.69) m | straight down, landscape |
+| `cam_2` | C270 | middle of the left top rail, lens ≈ (−0.55, −0.07, 0.66) m | ~50° down at the table centre, **portrait** |
+| `cam_3` | C270 | middle of the right top rail, lens ≈ (0.55, −0.07, 0.66) m | ~50° down at the table centre, **portrait** |
 
-- **The frame:** 1.0 × 0.6 × 0.5 m PVC box with printed clamp mounts. Build steps, parts list and print files are in [`camera/hardware/c270_frame/README.md`](../camera/hardware/c270_frame/README.md).
+- **Work volume seen by all three cameras:** about 43 × 23 cm, from the table up to 15 cm, with the C270's narrow lens. Why it's 0.7 m tall: see the frame README.
+- **The frame:** 1.0 × 0.6 × 0.7 m PVC box with printed clamp mounts. Build steps, parts list and print files are in [`camera/hardware/c270_frame/README.md`](../camera/hardware/c270_frame/README.md).
 - **The config:** the physical design is [`camera/config/rig_c270.json`](../camera/config/rig_c270.json), which both the mount generator and the software read.
 
 ![rig](../camera/hardware/c270_frame/renders/rig_overview.png)

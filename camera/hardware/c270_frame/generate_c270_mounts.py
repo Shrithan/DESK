@@ -125,13 +125,20 @@ def build_mount(cam: CameraSpec, tube_od: float, body: dict[str, float]) -> Mani
     s = transform(s_cam, R_cam_to_world, offset)
     keep = transform(keep_cam, R_cam_to_world, offset)
 
-    # Strut: hull of a pad on the ring surface and the sleeve wall that faces the tube.
+    # Strut: hull of a pad on the ring surface and the sleeve face that points most toward the
+    # tube: the top wall (-y), bottom wall (+y) or closed end (-x, used by portrait cameras).
     to_tube_cam = cam.R_world_to_camera @ (-offset)
-    wall_sign = -1.0 if to_tube_cam[1] < 0 else 1.0  # -y = top wall, +y = bottom wall
+    to_tube_cam /= np.linalg.norm(to_tube_cam)
     hy = body["height"] / 2 + CAM_CLEARANCE
     hx = body["width"] / 2 + CAM_CLEARANCE
-    wall_cam = box(-hx * 0.6, -0.01, -SLEEVE_DEPTH, hx * 0.6, 0.01, LIP_T)
-    wall_cam = wall_cam.translate([0, wall_sign * (hy + SLEEVE_WALL), 0])
+    faces = {"top": np.array([0, -1.0, 0]), "bottom": np.array([0, 1.0, 0]), "end": np.array([-1.0, 0, 0])}
+    face = max(faces, key=lambda k: float(faces[k] @ to_tube_cam))
+    if face == "end":
+        x0 = -hx - END_WALL
+        wall_cam = box(x0 - 0.01, -hy * 0.8, -SLEEVE_DEPTH, x0 + 1.0, hy * 0.8, LIP_T)  # overlaps the end wall
+    else:
+        sign = -1.0 if face == "top" else 1.0
+        wall_cam = box(-hx * 0.6, -0.01, -SLEEVE_DEPTH, hx * 0.6, 0.01, LIP_T).translate([0, sign * (hy + SLEEVE_WALL), 0])
     wall = transform(wall_cam, R_cam_to_world, offset)
     toward_cam = offset - np.dot(offset, B[:, 2]) * B[:, 2]
     toward_cam /= np.linalg.norm(toward_cam)
@@ -141,6 +148,11 @@ def build_mount(cam: CameraSpec, tube_od: float, body: dict[str, float]) -> Mani
     strut = (wall + pad).hull()
 
     part = ring + s + strut - keep - bore
+    if face == "end":  # keep the cable path through the strut
+        nh, nd = CABLE_NOTCH
+        x0 = -hx - END_WALL
+        channel = box(x0 - 40, -nh / 2, -SLEEVE_DEPTH - 1, -hx + 1, nh / 2, -SLEEVE_DEPTH + nd)
+        part = part - transform(channel, R_cam_to_world, offset)
     return part
 
 

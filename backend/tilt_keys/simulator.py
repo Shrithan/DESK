@@ -163,7 +163,7 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--bias-forward", type=float, default=0.0, help="constant lean added to forward (tests calibration)")
     s.add_argument("--bias-right", type=float, default=0.0, help="constant lean added to right (tests calibration)")
     i = sub.choices["interactive"]
-    i.add_argument("--url", default="ws://127.0.0.1:8765/ws/tilt")
+    i.add_argument("--url", default="ws://127.0.0.1:8766/ws/tilt")
     i.add_argument("--step", type=float, default=5.0, help="degrees per arrow press")
     args = p.parse_args(argv)
     try:

@@ -5,6 +5,7 @@
     python -m tilt_joystick --camera 0 --calibrate-direction  # also learn W/D directions
     python -m tilt_joystick --camera 0 --record runs/a.jsonl   # save per-frame mask features
     python -m tilt_joystick --replay runs/a.jsonl           # deterministic replay, prints key events
+    python -m tilt_joystick --camera 0 --control            # + agent control API for the DESK Fetch.ai agents
 """
 from __future__ import annotations
 
@@ -206,6 +207,9 @@ def main(argv=None) -> int:
     ap.add_argument('--record', help='write per-frame mask features to this JSONL for replay')
     ap.add_argument('--replay', help='replay a recorded JSONL (no camera, no model; always dry-run)')
     ap.add_argument('--events-log', help='append every bus event (joystick, key_down, key_up) as JSONL')
+    ap.add_argument('--control', action='store_true',
+                    help='serve the DESK agent control API on ws://127.0.0.1:PORT/ws/control (python -m agents.run)')
+    ap.add_argument('--control-port', type=int, default=8766)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s: %(message)s')
     config = load_config(args.config if Path(args.config).exists() else None)
@@ -216,6 +220,11 @@ def main(argv=None) -> int:
     backend = make_backend(args.dry_run or bool(args.replay))
     pipeline = TiltPipeline(config, backend, bus, direction, args.calibrate_direction)
     atexit.register(pipeline.close)  # last line of defence: never leave a key held
+    control_server = None
+    if args.control:
+        from tilt_joystick.agent_control import JoystickControlService, serve_control
+        control_server = serve_control(JoystickControlService(pipeline), port=args.control_port)
+        print(f'agent control API: ws://127.0.0.1:{args.control_port}/ws/control  (start the agents with python -m agents.run)')
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     try:
         if args.replay:
@@ -227,6 +236,8 @@ def main(argv=None) -> int:
         pass
     finally:
         pipeline.close()
+        if control_server is not None:
+            control_server.shutdown()
     return 0
 
 

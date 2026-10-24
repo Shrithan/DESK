@@ -26,14 +26,16 @@ def desired_keys(
 ) -> frozenset[str]:
     """Evaluate the four keys independently so diagonals hold two keys."""
     k = config.keys
+    fwd_on, fwd_off = config.thresholds("forward")
+    lr_on, lr_off = config.thresholds("right")
     directional = (
-        (k.forward, forward),
-        (k.back, None if forward is None else -forward),
-        (k.right, right),
-        (k.left, None if right is None else -right),
+        (k.forward, forward, fwd_on, fwd_off),
+        (k.back, None if forward is None else -forward, fwd_on, fwd_off),
+        (k.right, right, lr_on, lr_off),
+        (k.left, None if right is None else -right, lr_on, lr_off),
     )
     return frozenset(
         key
-        for key, value in directional
-        if hysteresis_step(key in held, value, config.on_threshold_deg, config.off_threshold_deg)
+        for key, value, on, off in directional
+        if hysteresis_step(key in held, value, on, off)
     )

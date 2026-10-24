@@ -22,6 +22,11 @@ class TiltKeyConfig:
     # Hysteresis (degrees, after calibration/inversion/filtering).
     on_threshold_deg: float = 15.0
     off_threshold_deg: float = 10.0
+    # Optional separate thresholds for the left/right axis (A/D). None = use the
+    # shared on/off thresholds above. Lets an agent calm twitchy steering without
+    # touching forward/back.
+    lr_on_threshold_deg: float | None = None
+    lr_off_threshold_deg: float | None = None
 
     keys: KeyBindings = field(default_factory=KeyBindings)
     invert_forward: bool = False
@@ -49,6 +54,12 @@ class TiltKeyConfig:
             raise ValueError(
                 f"need 0 <= off_threshold_deg ({self.off_threshold_deg}) < on_threshold_deg ({self.on_threshold_deg})"
             )
+        if (self.lr_on_threshold_deg is None) != (self.lr_off_threshold_deg is None):
+            raise ValueError("set both lr_on_threshold_deg and lr_off_threshold_deg, or neither")
+        if self.lr_on_threshold_deg is not None and not 0 <= self.lr_off_threshold_deg < self.lr_on_threshold_deg:
+            raise ValueError(
+                f"need 0 <= lr_off_threshold_deg ({self.lr_off_threshold_deg}) < lr_on_threshold_deg ({self.lr_on_threshold_deg})"
+            )
         bound = [self.keys.forward, self.keys.back, self.keys.left, self.keys.right]
         if len(set(bound)) != len(bound):
             raise ValueError(f"key bindings must be distinct, got {bound}")
@@ -59,6 +70,12 @@ class TiltKeyConfig:
             raise ValueError("calibration_duration_ms must be >= 0 (0 disables calibration)")
         if self.filter_min_cutoff_hz <= 0 or self.filter_d_cutoff_hz <= 0 or self.filter_beta < 0:
             raise ValueError("filter cutoffs must be > 0 and beta >= 0")
+
+    def thresholds(self, axis: str) -> tuple[float, float]:
+        """(on, off) degrees for ``axis`` ("forward" or "right")."""
+        if axis == "right" and self.lr_on_threshold_deg is not None:
+            return self.lr_on_threshold_deg, self.lr_off_threshold_deg  # type: ignore[return-value]
+        return self.on_threshold_deg, self.off_threshold_deg
 
     @classmethod
     def from_dict(cls, data: dict) -> "TiltKeyConfig":

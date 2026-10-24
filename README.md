@@ -26,6 +26,48 @@ python -m tilt_joystick --camera 0 --dry-run --calibrate-direction   # logs key 
 python -m tilt_joystick --camera 0                         # real keys; macOS needs Accessibility permission
 ```
 
+## Fetch.ai: five agents that set up, tune and fix the can joystick
+
+![tag:innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
+![tag:hackathon](https://img.shields.io/badge/hackathon-5F43F1)
+
+Chat with **DESK Coach** in ASI:One ("set up DESK for a racing game", "the steering is too twitchy",
+"it keeps stopping"). The Coach speaks the Agent Chat Protocol and hands work to four specialist uAgents.
+They read live telemetry from the can joystick and change its settings through a local control API.
+They are never in the frame→key path, so they add no latency.
+
+| Agent | Role |
+| --- | --- |
+| DESK Coach | ASI:One chat (Chat Protocol + cards), intent routing via the ASI:One LLM with a keyword fallback; pause/resume/undo/recalibrate itself |
+| Setup | Game profiles (racing, Subway Surfers, Minecraft, Pac-Man, custom), key remaps, inversion; plans first, applies only on approval |
+| Tuner | Reads the last 60 s of real tilt data, moves the triggers clear of your wobble, and measures before vs after |
+| Doctor | Diagnoses lost tracking, slow frames, failed calibration and flicker, with concrete fixes |
+| Validator | Watches 20 s of play after every change; keeps it or rolls back only that revision |
+
+Addresses come from `agents/.seed` (gitignored), or from `DESK_AGENT_SEED`. Reuse the team's seed file to keep
+the Agentverse addresses already published from `agent/fetch-five-agent-integration`.
+
+```bash
+pip install -e '.[ai,joystick,fetch]'
+# Terminal 1: the real key path plus the agent control API on ws://127.0.0.1:8766/ws/control
+python -m tilt_joystick --camera 0 --control              # add --dry-run to log keys instead of pressing
+# Terminal 2: the four specialists (Bureau, port 8000) and the Coach (port 8001)
+python -m agents.run
+```
+
+Open the Inspector link that the Coach prints, click **Connect → Mailbox**, then talk to **DESK Coach** in ASI:One.
+`ASI_ONE_API_KEY` in `.env` turns on LLM intent parsing.
+No camera? Run `DESK_DEMO_MODE=1 python -m agents.run`; it uses a simulated player on the same API.
+
+How the agents' degrees map onto the joystick (`tilt_joystick/agent_control.py`):
+- A full push is about 22° × `tilt.full_scale`.
+- The forward/back trigger becomes `keys.press`/`keys.release`.
+- A separate left/right trigger and inversion are applied as a per-axis gain before the 8-way sector mapper.
+- A trigger above the measurable range raises `full_scale` so it stays reachable.
+
+Every change is checked against safe limits, releases held keys first, is recorded, and can be undone.
+Tests: `python -m pytest -q tests/agents tests/tilt_keys tests/can_joystick`.
+
 ## Calibrated overhead mapping (metres)
 
 Calibrate the overhead webcam with agent 1's tools, then start with

@@ -12,7 +12,7 @@ step(300,object('a','bottle',120,200),object('b','cup',110,200));
 step(400,object('a','can',130,200),object('b','bottle',120,200));const shared=context.pairs[0];assert.ok(shared.confirmed);assert.ok(shared.position.every(x=>x===0));
 step(500,object('a','can',130,104),object('b','bottle',184,152));
 assert.equal(context.pairs[0],shared);assert.ok(Math.abs(shared.position[0]-10)<1e-8,'X comes from overhead horizontal');assert.ok(Math.abs(shared.position[1]-10)<1e-8,'Y comes from overhead vertical');assert.ok(Math.abs(shared.position[2]-20)<1e-8,'Z comes from side vertical');
-context.cameras.top.result.objects[0].observation.tracking_state='lost';context.fuse();assert.equal(shared.position,null,'missing view cannot produce combined position');
+context.cameras.top.result.objects[0].observation.tracking_state='lost';context.fuse();assert.equal(shared.state,'holding','brief loss holds the smoothed position');context.cameras.front.acceptedSample+=800;context.cameras.top.acceptedSample+=800;context.fuse();assert.equal(shared.position,null,'missing view beyond the hold window cannot produce combined position');context.cameras.front.acceptedSample-=800;context.cameras.top.acceptedSample-=800;
 context.cameras.front.sample=1700;context.cameras.top.sample=1700;context.cameras.front.acceptedSample=context.cameras.top.acceptedSample=1700;context.fuse();assert.equal(shared.confirmed,true,'brief loss retains the established cross-view match');
 context.cameras.front.acceptedSample=context.cameras.top.acceptedSample=10000;context.fuse();assert.equal(shared.confirmed,false,'long absence requires motion recheck');
 context.addPair(object('c','book',50,50),object('d','book',70,70),true);assert.equal(context.pairs.length,2);
@@ -34,5 +34,5 @@ context.addPair(context.cameras.front.result.objects[0],context.cameras.top.resu
 context.addPair(context.cameras.front.result.objects[1],context.cameras.top.result.objects[0],true);
 context.fuse();assert.equal(context.pairs.length,2);assert.ok(context.pairs.every(p=>p.position));
 context.cameras.top.result.objects[1].observation.tracking_state='lost';context.fuse();
-assert.equal(context.pairs[0].position,null);assert.ok(context.pairs[1].position,'loss of one pair must not interrupt the other');
+assert.equal(context.pairs[0].state,'holding','a lost pair holds briefly');assert.equal(context.pairs[1].state,'tracked');assert.ok(context.pairs[1].position,'loss of one pair must not interrupt the other');
 console.log('Multi-object checks passed: ambiguity rejection, explicit pairing, independent loss, no duplicate identities.');

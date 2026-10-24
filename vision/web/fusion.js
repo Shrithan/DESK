@@ -213,7 +213,9 @@ function fuse(){
  for(const p of pairs){
  const a=find('front',p.front),b=find('top',p.top),color=colors[(p.number-1)%colors.length];
  const good=associationStep(p,a,b,newest);
- const synchronized=Math.abs(cameras.front.acceptedSample-cameras.top.acceptedSample)<=100;
+ // Views are analysed independently (a few Hz each); pair samples up to 250 ms apart and let the
+ // One Euro filter absorb the skew, instead of dropping most updates.
+ const synchronized=Math.abs(cameras.front.acceptedSample-cameras.top.acceptedSample)<=250; // ms
  p.position=null;
  if(good&&synchronized){
  const values=spatialValues(a,b);
@@ -226,8 +228,12 @@ function fuse(){
   p.position=p.filterState.map(s=>s.value);
  }else p.position=rawPosition;
  const stamp=`${cameras.front.acceptedSample}|${cameras.top.acceptedSample}`;
- if(p.lastSample!==stamp){if(p.state!=='tracked')p.points.push(null);p.points.push(p.position);if(p.points.length>180)p.points.shift();p.lastSample=stamp;p.prediction=updatePrediction(p.prediction,p.position,newest-performance.timeOrigin,[cameras.top.acceptedSample-performance.timeOrigin,cameras.top.acceptedSample-performance.timeOrigin,cameras.front.acceptedSample-performance.timeOrigin]);}p.state='tracked';
- }else{if(p.visualTrail?.length&&p.visualTrail[p.visualTrail.length-1]!==null)p.visualTrail.push(null);p.visual=null;p.visualTime=null;p.prediction=null;p.filterState=null;p.filterStamp=null;p.state=good?'waiting for paired samples':p.confirmed?'waiting for both views':'Move the target left/right so both views see it move';}
+ p.lastGood=newest;p.lastPosition=p.position;if(p.lastSample!==stamp){if(p.state==='lost')p.points.push(null);p.points.push(p.position);if(p.points.length>180)p.points.shift();p.lastSample=stamp;p.prediction=updatePrediction(p.prediction,p.position,newest-performance.timeOrigin,[cameras.top.acceptedSample-performance.timeOrigin,cameras.top.acceptedSample-performance.timeOrigin,cameras.front.acceptedSample-performance.timeOrigin]);}p.state='tracked';
+ }else if(p.lastPosition&&p.lastGood&&newest-p.lastGood<=700){ // hold window, ms
+  // Brief dropout (one view busy, a missed detection): hold the smoothed position so the
+  // trail stays continuous; the prediction module extrapolates for up to 80 ms.
+  p.position=p.lastPosition;p.state='holding';
+ }else{if(p.position||p.state==='holding')p.state='lost';if(p.visualTrail?.length&&p.visualTrail[p.visualTrail.length-1]!==null)p.visualTrail.push(null);p.visual=null;p.visualTime=null;p.prediction=null;p.filterState=null;p.filterStamp=null;if(p.state!=='lost')p.state=good?'waiting for paired samples':p.confirmed?'waiting for both views':'Move the target left/right so both views see it move';}
  const card=document.createElement('div');card.className='track-card';card.style.borderColor=color;
  const title=document.createElement('strong');title.textContent=`Object ${p.number} · ${p.label}`;title.style.color=color;
  const text=document.createElement('p');text.textContent=p.position?(p.metric?`X ${p.position[0].toFixed(1)} cm · Y ${p.position[1].toFixed(1)} cm (table, calibrated) · Z ${p.position[2].toFixed(1)}% relative`:`X ${p.position[0].toFixed(1)}% · Y ${p.position[1].toFixed(1)}% · Z ${p.position[2].toFixed(1)}%`):p.state;

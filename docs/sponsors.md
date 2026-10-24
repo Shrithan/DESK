@@ -16,17 +16,37 @@ requirements and using the actual service.
   `npx convex dev`, implement each `LiveConvexSessionAdapter` method, set
   `VITE_CONVEX_URL`.
 
-## Cartesia — **MOCKED (text-only), live path scaffolded but unverified**
+## Cartesia — **REAL, verified end-to-end with a live key**
 
-- `integrations/cartesia/server.mjs` is a dependency-free Node proxy so the
-  API key never reaches the browser. Without `CARTESIA_API_KEY` set it
-  echoes `{mocked: true, text}` and the frontend shows text-only narration.
-- The "live" branch in `server.mjs` calls an **unverified** Cartesia TTS
-  endpoint/shape — explicitly marked with a TODO to confirm against
-  https://docs.cartesia.ai before it's claimed as a working integration. Any
-  failure there falls back to mock rather than breaking the demo.
-- Narration is debounced per event (4s) and never fires on every pose
-  update — only on tracking-state transitions.
+Both directions confirmed working against the actual API (2026-10-24), not
+guessed — see `integrations/cartesia/server.mjs`, a Node proxy (needs the
+`ws` package; `npm install` in that directory) that keeps the key
+server-side for both:
+
+- **TTS** (`POST /speak`): `https://api.cartesia.ai/tts/bytes`,
+  `Authorization: Bearer <key>` + `Cartesia-Version: 2026-08-14`,
+  `model_id: "sonic-3"`, a voice UUID, `output_format`. Verified with a real
+  key — returns a playable WAV. Used for status narration ("Object lost",
+  "Tracking started", etc.), debounced per event (4s), never fires on every
+  pose update.
+- **STT** (`WS /stt`): relays to `wss://api.cartesia.ai/stt/websocket`
+  (`model=ink-whisper`), `X-API-Key` header, binary PCM16 16kHz chunks in,
+  `finalize`/`close` text commands, `transcript`/`flush_done`/`done`/`error`
+  JSON back. Verified with a real round-trip (TTS output fed back through
+  STT, got a correct transcript). Drives the **voice-assigned object roles**
+  feature — see `frontend/README.md` — not a canned "Track this object"
+  command, but free speech matched against a small keyword list
+  (`frontend/src/lib/roleProfiles.ts`), explicitly not claimed as full NLU.
+
+Without `CARTESIA_API_KEY` set on the proxy, both fall back to mock
+(`{mocked:true}` / STT connection that reports an error instead of hanging)
+so the UI still runs end-to-end with no key.
+
+`integrations/voicecontrol/server.mjs` is the actual keystroke injector that
+voice-assigned roles drive (osascript/System Events, same mechanism as
+Agent 3's pynput approach but independently implemented) — not a Cartesia
+API itself, just what sits downstream of its STT output. Mock unless
+`VOICECONTROL_ALLOW_INJECT=1`.
 
 ## Fetch.ai — **MOCKED (seam only)**
 

@@ -1,0 +1,105 @@
+{
+  "schema": "phantom.camera_rig",
+  "schema_version": "1.0.0",
+  "rig_name": "c270_overhead_iphone_side",
+  "notes": [
+    "cam_1 = Logitech C270 on the boom, straight down (overhead, X/Y). cam_2 = iPhone via Continuity Camera at the side (Z).",
+    "unique_id values are from Prithwiraj's MacBook; the C270 id encodes its USB port, so keep it in the same port.",
+    "Turn OFF Center Stage / Portrait / Studio Light in Control Center > Video Effects: they crop and pan the iPhone image and break calibration.",
+    "World axes: +Z up, origin = checkerboard centre on the table under the overhead camera, +X right, +Y away from you."
+  ],
+  "frame": {
+    "width_m": 0.0,
+    "depth_m": 0.0,
+    "height_m": 0.995,
+    "tube": "printed 40 mm boom",
+    "tube_od_mm": 40.0,
+    "overhead_crossbar_y_m": 0.0
+  },
+  "camera_model": {
+    "name": "logitech_c270",
+    "image_width": 1280,
+    "image_height": 720,
+    "fps": 30,
+    "fourcc": "MJPG",
+    "diagonal_fov_deg": 55.0,
+    "fixed_focus": true,
+    "body_mm": {
+      "width": 73.0,
+      "height": 32.0,
+      "depth": 30.0
+    }
+  },
+  "cameras": [
+    {
+      "id": "cam_1",
+      "role": "boom_overhead",
+      "source": {
+        "kind": "uvc",
+        "unique_id": "0x120000046d0825",
+        "linux_by_path": null,
+        "index": null,
+        "name_contains": "C270"
+      },
+      "mount": {
+        "tube": "boom_head",
+        "tube_axis": "x",
+        "tube_point_m": [
+          0.0,
+          0.0,
+          0.995
+        ],
+        "lens_offset_from_tube_mm": [
+          0.0,
+          0.0,
+          -85.0
+        ]
+      },
+      "look_at_m": null,
+      "look_direction": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": "portrait"
+    },
+    {
+      "id": "cam_2",
+      "role": "side_iphone",
+      "source": {
+        "kind": "uvc",
+        "unique_id": "59C26EF8-5F30-44E1-925D-7CA800000001",
+        "linux_by_path": null,
+        "index": null,
+        "name_contains": "iPhone"
+      },
+      "image_width": 1920,
+      "image_height": 1080,
+      "fps": 30,
+      "fourcc": null,
+      "mount": {
+        "tube": "phone_stand",
+        "tube_axis": "x",
+        "tube_point_m": [
+          0.0,
+          -0.7,
+          0.15
+        ],
+        "lens_offset_from_tube_mm": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "look_at_m": [
+        0.0,
+        0.0,
+        0.03
+      ]
+    }
+  ],
+  "sync": {
+    "pair_tolerance_ms": 20.0
+  },
+  "calibration_file": "calibration/data/rig_calibration_c270_iphone.json"
+}

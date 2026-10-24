@@ -2,7 +2,7 @@
 
 A self-standing box frame, 1.0 m wide × 0.6 m deep × 0.5 m tall, that sits on the table and carries all three webcams:
 - **`cam_1`** looks straight down from a crossbar.
-- **`cam_2` and `cam_3`** are clamped near the two back top corners and look down at about 43° toward the centre.
+- **`cam_2` and `cam_3`** are clamped near the two back top corners and look down at about 46° toward the table centre.
 - **The front is open**, so you can reach in.
 
 Because all three cameras are on one rigid frame, **you calibrate once and can move the whole frame without recalibrating**, as long as no clamp or joint moves.
@@ -19,8 +19,8 @@ All geometry comes from [`camera/config/rig_c270.json`](../../config/rig_c270.js
 | camera | lens position (m) | aim | table coverage |
 |---|---|---|---|
 | `cam_1` overhead | (0, 0, 0.49) | straight down | ≈ 0.44 × 0.25 m |
-| `cam_2` back-left | (−0.40, 0.25, 0.49) | 43° down, toward (0, 0, 0.05) | whole centre area, obliquely |
-| `cam_3` back-right | (0.40, 0.25, 0.49) | 43° down, toward (0, 0, 0.05) | whole centre area, obliquely |
+| `cam_2` back-left | (−0.40, 0.25, 0.49) | 46° down, toward (0, 0, 0) | whole centre area, obliquely |
+| `cam_3` back-right | (0.40, 0.25, 0.49) | 46° down, toward (0, 0, 0) | whole centre area, obliquely |
 
 The C270 has a narrow lens (55° diagonal), so at 0.5 m the overhead camera only sees about 44 × 25 cm. Objects must stay inside that patch to be seen by all three cameras.
 

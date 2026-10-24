@@ -1,0 +1,7 @@
+{
+ "camera_id": "cam_1",
+ "fps": 15.0,
+ "frames": 60,
+ "capture_offset_ms": 0.0,
+ "note": "SYNTHETIC: reported capture time = true time + capture_offset_ms (simulated latency mismatch)"
+}

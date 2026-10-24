@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "phantom.camera_health/1.0.0",
+  "title": "Camera health summary (GET /api/health, poll <= 1 Hz) - for agent 4 (Convex / Cartesia). PROPOSED for shared/contracts",
+  "type": "object",
+  "required": ["schema", "schema_version", "timestamp_unix_ms", "status", "streaming_cameras", "multiview_available", "calibration_version", "cameras", "sync"],
+  "properties": {
+    "schema": {"const": "phantom.camera_health"},
+    "schema_version": {"type": "string", "pattern": "^1\\."},
+    "timestamp_unix_ms": {"type": "integer"},
+    "status": {"enum": ["ok", "degraded", "unusable"], "description": "ok = all cameras streaming; degraded = >= 2 streaming (multiview still possible); unusable = < 2"},
+    "streaming_cameras": {"type": "array", "items": {"type": "string"}},
+    "multiview_available": {"type": "boolean"},
+    "calibration_version": {"type": ["string", "null"]},
+    "cameras": {"type": "object"},
+    "sync": {"type": "object"}
+  }
+}

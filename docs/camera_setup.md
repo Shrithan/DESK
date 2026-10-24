@@ -1,39 +1,57 @@
 # Camera setup (Agent 1)
 
+## Decision: 3× Logitech C270 over USB instead of iPhones
+We looked into three iPhones (14 Pro Max ×2, 16 Pro) first:
+
+| option | finding |
+|---|---|
+| macOS Continuity Camera | one iPhone at a time |
+| Camo, Iriun, NDI HX Camera, RTSP apps (iRTSP, Larix, …) | multiple phones simultaneously not confirmed; everything except a custom iOS app goes over Wi-Fi |
+| browser sender (Safari `getUserMedia` → WebRTC) | possible, but it's our own code, needs HTTPS on the LAN and still goes over Wi-Fi |
+| venue Wi-Fi | often isolates clients; adds an estimated 100–500 ms latency that varies; three separate phone clocks |
+
+**Chosen:** three USB webcams on one powered hub, because they need no network or apps, all share one host clock, and the C270 is fixed-focus.
+
+**Trade-offs:**
+- 720p only.
+- A narrow lens (55° diagonal).
+- No hardware sync.
+
+The iPhone cradles remain in `camera/hardware/iphone_cradles/` as a fallback.
+
 ## Hardware
-| cam id | phone | mount |
-|---|---|---|
-| `cam_1` | iPhone 16 Pro | overhead: cradle edge mount (1/4"-20) on a boom arm / C-stand |
-| `cam_2` | iPhone 14 Pro Max | tripod: cradle back mount (1/4"-20) |
-| `cam_3` | iPhone 14 Pro Max | tripod: cradle back mount (1/4"-20) |
+| cam | camera | position (frame = world axes) | aim |
+|---|---|---|---|
+| `cam_1` | C270 | overhead crossbar, lens ≈ (0, 0, 0.49) m | straight down |
+| `cam_2` | C270 | back top rail, left, lens ≈ (−0.40, 0.25, 0.49) m | ~46° down at the table centre |
+| `cam_3` | C270 | back top rail, right, lens ≈ (0.40, 0.25, 0.49) m | ~46° down at the table centre |
 
-The cradles, print files and parts list are in `camera/mounts/`. The machine-readable version of this table is `camera/mounts/phone_models.json` → `rig`.
+- **The frame:** 1.0 × 0.6 × 0.5 m PVC box with printed clamp mounts. Build steps, parts list and print files are in [`camera/hardware/c270_frame/README.md`](../camera/hardware/c270_frame/README.md).
+- **The config:** the physical design is [`camera/config/rig_c270.json`](../camera/config/rig_c270.json), which both the mount generator and the software read.
 
-## Physical layout
-![rig overview](../camera/mounts/rig_overview.png)
+![rig](../camera/hardware/c270_frame/renders/rig_overview.png)
 
-**`cam_1` (overhead)**
-- Mount it about 1.0 m directly above the centre of the work area, looking straight down.
-- From there the 1× camera in 16:9 video sees roughly 1.2 × 0.7 m of table. That figure is estimated from the spec, not measured.
-- This camera gives the most accurate left/right and forward/back position.
-- The boom approaches from the side, so the arm and stand stay out of the other cameras' views where possible.
-
-**`cam_2` and `cam_3` (angled)**
-- Put each on a tripod 0.6–1.0 m from the centre, 30–45° above the tabletop, aimed at the centre.
-- Place them about 90–120° apart around the table.
-- These two supply height (Z). Each also crosses the overhead view at roughly 45–60°, which is a good angle for triangulation.
-
-**All cameras**
-- Landscape orientation, the same for the whole session.
-- Every part of the work area must be seen by at least two cameras.
-- Hands reaching in from above will block `cam_1`. The angled cameras must still cover the object when that happens.
+## Connections, ports and formats
+- **USB:** each C270 → its own port on a powered USB hub → one USB-C cable to the MacBook. Keep each camera in the same port, because its macOS id encodes the port.
+- **Bandwidth:** request **MJPEG** at 1280×720 @ 30 fps (`fourcc` in the rig config). Uncompressed 720p30 needs about 55 MB/s, more than USB 2 carries, so three cameras only fit compressed.
+- **Permissions:** macOS camera permission for the terminal app running `python -m camera`.
+- **Network:** none required. The ingest HTTP server listens on `127.0.0.1:8100`; bind `--host 0.0.0.0` only if another machine must read it.
+- **Latency:** not measured on hardware yet (USB webcams are typically a few tens of ms). `--latency-ms` subtracts a measured constant from the timestamps. Measure it by filming a millisecond clock on the Mac's screen and comparing the clock in the image with the frame's receive time.
 
 ## Lock the optics before calibrating
-- Use the **1× main (wide) camera only**. iPhones switch automatically to macro or ultra-wide at close range, and a switch makes the intrinsics invalid. The sender must select a fixed lens.
-- Lock focus and exposure (AE/AF lock), turn off zoom, and turn off video stabilization, since stabilization crops and warps the frame.
-- If any of these change, re-run intrinsics for that camera.
-- If any phone is bumped or re-seated in its cradle, re-run extrinsics.
-- The calibration checkerboard lies flat on the table, where `cam_1` sees it square-on. Remove it after calibration; it must never be attached to a tracked object.
+- **Fixed settings:** keep the C270 at 1280×720 and don't use digital zoom or Logitech software effects. If the resolution changes, redo intrinsics.
+- **Focus:** fixed on the C270, so nothing to lock. Don't twist the lens ring if your unit has one exposed.
+- **Exposure:** set by the camera automatically, and OpenCV on macOS can't reliably lock it. Use steady, bright lighting and avoid sunlight that changes.
+- **Recalibrate** when anything moves: if a camera is bumped or re-seated, re-run extrinsics. `python -m calibration verify` detects drift.
 
-## Camera IDs
-`cam_1`..`cam_3` are fixed to the physical phones listed above and must stay the same after a reconnect. Label each phone and cradle physically, for example with tape on the cradle.
+## Graceful degradation
+| cameras streaming | behaviour |
+|---|---|
+| 3 | `status: ok` |
+| 2 | `degraded`: multiview depth still available from the remaining two |
+| fewer than 2 | `unusable` for metric 3D: anything downstream must be labelled monocular/estimated |
+
+Disconnected cameras reconnect automatically and keep their id.
+
+## Procedure
+See [`calibration/README.md`](../calibration/README.md): print board → intrinsics per camera → extrinsics → verify.

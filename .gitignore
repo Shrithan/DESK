@@ -2,5 +2,11 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .venv/
+venv/
 node_modules/
 .env
+.env.*
+# real-camera captures and recordings may show people/rooms: keep them local
+calibration/data/captures/
+recordings/
+*.gcode

@@ -38,14 +38,14 @@
       "role": "back_left",
       "source": {"kind": "uvc", "unique_id": null, "linux_by_path": null, "index": 1, "name_contains": "C270"},
       "mount": {"tube": "top_back_rail", "tube_axis": "x", "tube_point_m": [-0.4, 0.3, 0.5], "lens_offset_from_tube_mm": [0.0, -55.0, -15.0]},
-      "look_at_m": [0.0, 0.0, 0.05]
+      "look_at_m": [0.0, 0.0, 0.0]
     },
     {
       "id": "cam_3",
       "role": "back_right",
       "source": {"kind": "uvc", "unique_id": null, "linux_by_path": null, "index": 2, "name_contains": "C270"},
       "mount": {"tube": "top_back_rail", "tube_axis": "x", "tube_point_m": [0.4, 0.3, 0.5], "lens_offset_from_tube_mm": [0.0, -55.0, -15.0]},
-      "look_at_m": [0.0, 0.0, 0.05]
+      "look_at_m": [0.0, 0.0, 0.0]
     }
   ],
   "sync": {"pair_tolerance_ms": 20.0},

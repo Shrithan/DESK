@@ -1,0 +1,43 @@
+{
+  "schema": "phantom.camera_intrinsics",
+  "schema_version": "1.0.0",
+  "camera_id": "cam_2",
+  "conventions": {
+    "pixels": "OpenCV: (0,0) = centre of top-left pixel, u right, v down",
+    "distortion_model": "opencv_radtan [k1, k2, p1, p2, k3] on normalised coordinates"
+  },
+  "image_size": {
+    "width": 1280,
+    "height": 720
+  },
+  "K": [
+    [
+      1437.314002904729,
+      0.0,
+      645.218468425401
+    ],
+    [
+      0.0,
+      1434.4551192374856,
+      353.9030269036656
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "distortion_model": "opencv_radtan",
+  "dist": [
+    -0.06,
+    0.09,
+    0.0004,
+    -0.0003,
+    0.0
+  ],
+  "rms_reprojection_px": null,
+  "num_views": null,
+  "per_view_rms_px": null,
+  "method": "synthetic_ground_truth",
+  "calibrated_unix_ms": null
+}

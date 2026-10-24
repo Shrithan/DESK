@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "phantom.rig_calibration/1.0.0",
+  "title": "Phantom rig calibration (PROPOSED for shared/contracts, owner: agent 1)",
+  "description": "Units: metres and pixels. World: right-handed, +X right, +Y away from viewer, +Z up, origin = centre of the checkerboard inner-corner grid lying face-up on the table. Camera frame: OpenCV (+X right, +Y down, +Z forward). x_cam = R_world_to_camera @ x_world + t_world_to_camera_m.",
+  "type": "object",
+  "required": ["calibration_id", "schema", "schema_version", "conventions", "world_reference", "cameras", "validation"],
+  "properties": {
+    "calibration_id": {"type": "string", "description": "UTC timestamp + content hash; every CameraFrame carries it as calibration_version"},
+    "schema": {"const": "phantom.rig_calibration"},
+    "schema_version": {"type": "string", "pattern": "^1\\."},
+    "rig_name": {"type": "string"},
+    "created_unix_ms": {"type": "integer"},
+    "conventions": {"type": "object"},
+    "world_reference": {"type": "object"},
+    "cameras": {
+      "type": "object",
+      "patternProperties": {"^cam_[0-9]+$": {"$ref": "#/$defs/camera"}},
+      "additionalProperties": false
+    },
+    "validation": {"type": "object"},
+    "notes": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "mat3": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"$ref": "#/$defs/vec3"}},
+    "vec3": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+    "camera": {
+      "type": "object",
+      "required": ["camera_id", "intrinsics", "extrinsics"],
+      "properties": {
+        "camera_id": {"type": "string"},
+        "intrinsics": {
+          "type": "object",
+          "required": ["image_size", "K", "distortion_model", "dist"],
+          "properties": {
+            "image_size": {"type": "object", "required": ["width", "height"], "properties": {"width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1}}},
+            "K": {"$ref": "#/$defs/mat3"},
+            "distortion_model": {"const": "opencv_radtan"},
+            "dist": {"type": "array", "minItems": 5, "maxItems": 5, "items": {"type": "number"}},
+            "rms_reprojection_px": {"type": ["number", "null"]}
+          }
+        },
+        "extrinsics": {
+          "type": ["object", "null"],
+          "required": ["R_world_to_camera", "t_world_to_camera_m", "R_camera_to_world", "camera_center_world_m"],
+          "properties": {
+            "R_world_to_camera": {"$ref": "#/$defs/mat3"},
+            "t_world_to_camera_m": {"$ref": "#/$defs/vec3"},
+            "R_camera_to_world": {"$ref": "#/$defs/mat3"},
+            "camera_center_world_m": {"$ref": "#/$defs/vec3"},
+            "optical_axis_world": {"$ref": "#/$defs/vec3"},
+            "rms_reprojection_px": {"type": ["number", "null"]}
+          }
+        },
+        "projection_matrix_undistorted": {"type": "array", "minItems": 3, "maxItems": 3}
+      }
+    }
+  }
+}

@@ -13,7 +13,7 @@ test = ["pytest>=8,<10"]
 ai = ["ultralytics>=8.3,<9"]
 
 [tool.setuptools.packages.find]
-include = ["vision*", "tracking2d*"]
+include = ["vision*", "tracking2d*", "camera*", "calibration*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

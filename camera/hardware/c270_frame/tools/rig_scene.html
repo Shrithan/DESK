@@ -1,0 +1,98 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#eef1f5}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script></head><body>
+<script type="module">
+import * as THREE from 'three';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+const W = 1600, H = 1000;
+const S = await (await fetch('scene.json')).json();
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xeef1f5);
+THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.5));
+const sun = new THREE.DirectionalLight(0xffffff, 2.0); sun.position.set(1.2, -1.5, 3); sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096); Object.assign(sun.shadow.camera, { left: -1.5, right: 1.5, top: 1.5, bottom: -1.5, near: 0.1, far: 8 });
+scene.add(sun);
+const mat = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, metalness: 0.05, ...o });
+function box(sx, sy, sz, color, x, y, z, parent = scene) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat(color)); m.position.set(x, y, z);
+  m.castShadow = m.receiveShadow = true; parent.add(m); return m;
+}
+function rod(a, b, r, color, o = {}) {
+  const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b), d = B.clone().sub(A);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.length(), 28), mat(color, o));
+  m.position.copy(A).add(B).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  m.castShadow = m.receiveShadow = true; scene.add(m); return m;
+}
+function label(text, x, y, z, color = '#1d2b3a', size = 0.06) {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 256; const g = c.getContext('2d');
+  g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.roundRect(8, 8, 1008, 240, 40); g.fill();
+  g.fillStyle = color; g.font = 'bold 84px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const lines = text.split('\n'); lines.forEach((l, i) => g.fillText(l, 512, 128 + (i - (lines.length - 1) / 2) * 92, 980));
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+  s.scale.set(size * 4, size, 1); s.position.set(x, y, z); s.renderOrder = 10; scene.add(s); return s;
+}
+// Tabletop (z = 0) and floor.
+box(1.6, 1.0, 0.04, 0xc8a27a, 0, 0.05, -0.02);
+for (const [x, y] of [[-0.75, -0.42], [0.75, -0.42], [-0.75, 0.52], [0.75, 0.52]]) box(0.05, 0.05, 0.71, 0x6b4f36, x, y, -0.395);
+box(6, 6, 0.01, 0xd9dde3, 0, 0, -0.755);
+// Frame tubes (bottom tubes rest on the table).
+const r = S.tube_od_m / 2;
+for (const [a, b] of S.tubes) {
+  const lift = p => [p[0], p[1], p[2] === 0 ? r : p[2]];
+  rod(lift(a), lift(b), r, 0xf4f4f0, { roughness: 0.45 });
+}
+for (const x of [-0.5, 0.5]) for (const y of [-0.3, 0.3]) for (const z of [r, S.frame.height_m]) {
+  const j = new THREE.Mesh(new THREE.SphereGeometry(r * 1.35, 24, 16), mat(0xe8e8e2)); j.position.set(x, y, z); j.castShadow = true; scene.add(j);
+}
+// Work area, world axes, checkerboard (calibration only), tracked mug.
+const area = new THREE.Mesh(new THREE.CircleGeometry(0.2, 64), new THREE.MeshBasicMaterial({ color: 0xf39c12, transparent: true, opacity: 0.18 }));
+area.position.z = 0.001; scene.add(area);
+const cb = new THREE.Group(); for (let i = 0; i < 10; i++) for (let j = 0; j < 7; j++) box(0.025, 0.025, 0.002, (i + j) % 2 ? 0xffffff : 0x111111, -0.1125 + i * 0.025, -0.075 + j * 0.025, 0.001, cb);
+cb.visible = false; scene.add(cb);
+const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.036, 0.1, 40), mat(0x2e86de)); mug.rotation.x = Math.PI / 2; mug.position.set(0.04, 0.0, 0.05); mug.castShadow = true; scene.add(mug);
+const handle = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.008, 12, 30), mat(0x2e86de)); handle.position.set(0.085, 0.0, 0.05); handle.rotation.x = Math.PI / 2; scene.add(handle);
+for (const [d, c] of [[[0.08, 0, 0], 0xe74c3c], [[0, 0.08, 0], 0x27ae60], [[0, 0, 0.08], 0x2980b9]]) rod([-0.3, -0.18, 0.002], [-0.3 + d[0], -0.18 + d[1], 0.002 + d[2]], 0.003, c);
+label('world axes: +X red, +Y green, +Z blue', -0.26, -0.18, 0.12, '#1d2b3a', 0.045);
+
+const loader = new STLLoader(); const load = f => new Promise(res => loader.load(f, res));
+for (const c of S.cameras) {
+  const mount = new THREE.Mesh(await load(c.stl), mat(0x24262b, { roughness: 0.75 }));
+  mount.scale.setScalar(0.001); mount.position.set(...c.tube_point_m); mount.castShadow = true; scene.add(mount);
+  const Rm = c.R_camera_to_world; // columns = camera x, y, z in world
+  const basis = new THREE.Matrix4().makeBasis(
+    new THREE.Vector3(Rm[0][0], Rm[1][0], Rm[2][0]), new THREE.Vector3(Rm[0][1], Rm[1][1], Rm[2][1]), new THREE.Vector3(Rm[0][2], Rm[1][2], Rm[2][2]));
+  const cam = new THREE.Group(); cam.applyMatrix4(basis); cam.position.set(...c.lens_m); scene.add(cam);
+  const b = S.body_mm;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(b.width / 1000, b.height / 1000, b.depth / 1000), mat(0x111111, { roughness: 0.35 }));
+  body.position.set(0, 0, -b.depth / 2000); body.castShadow = true; cam.add(body);
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.003, 32), mat(0x3a4a6a, { metalness: 0.8, roughness: 0.15 }));
+  lens.rotation.x = Math.PI / 2; lens.position.set(0, 0, 0.0005); cam.add(lens);
+  // Frustum down to the tabletop.
+  const P = new THREE.Vector3(...c.lens_m), tx = Math.tan(c.hfov_deg * Math.PI / 360), ty = Math.tan(c.vfov_deg * Math.PI / 360);
+  const pts = [], corners = [];
+  for (const [sx, sy] of [[1, 1], [1, -1], [-1, -1], [-1, 1]]) {
+    const dCam = new THREE.Vector3(sx * tx, sy * ty, 1);
+    const d = new THREE.Vector3(Rm[0][0] * dCam.x + Rm[0][1] * dCam.y + Rm[0][2], Rm[1][0] * dCam.x + Rm[1][1] * dCam.y + Rm[1][2], Rm[2][0] * dCam.x + Rm[2][1] * dCam.y + Rm[2][2]);
+    corners.push(P.clone().addScaledVector(d, -P.z / d.z + 0.002));
+  }
+  corners.forEach((q, i) => pts.push(P, q, q, corners[(i + 1) % 4]));
+  const color = c.role === 'overhead' ? 0xe67e22 : 0x6b5b95;
+  scene.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.7 })));
+  const fp = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([corners[0], corners[1], corners[2], corners[0], corners[2], corners[3]]),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.10, side: THREE.DoubleSide, depthWrite: false }));
+  scene.add(fp);
+  const L = c.lens_m, txt = c.role === 'overhead' ? `${c.id}  C270 overhead\nlooking straight down` : `${c.id}  C270 ${c.role.replace('_', ' ')}\nportrait, ~50° down at centre`;
+  label(txt, L[0] * 1.25, L[1] + 0.12, L[2] + 0.13, c.role === 'overhead' ? '#b35900' : '#4a3b75');
+}
+label('1.0 m', 0, -0.36, 0.56, '#c0392b', 0.04); label('0.6 m', 0.56, 0, 0.56, '#c0392b', 0.04); label('0.7 m', -0.56, -0.3, 0.35, '#c0392b', 0.04);
+label('open front: hands reach in here', 0, -0.42, 0.08, '#1d2b3a', 0.05);
+
+window.shoot = (pos, look, fov = 40, showBoard = false) => {
+  cb.visible = showBoard; mug.visible = handle.visible = !showBoard;
+  const cam = new THREE.PerspectiveCamera(fov, W / H, 0.005, 20); cam.up.set(0, 0, 1);
+  cam.position.set(...pos); cam.lookAt(...look); renderer.render(scene, cam);
+};
+window.ready = true;
+</script></body></html>

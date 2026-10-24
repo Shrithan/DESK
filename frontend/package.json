@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "proxy:cartesia": "node ../integrations/cartesia/server.mjs"
+    "proxy:cartesia": "node ../integrations/cartesia/server.mjs",
+    "proxy:gamecontrol": "node ../integrations/gamecontrol/server.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

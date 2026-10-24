@@ -30,6 +30,26 @@ panel once a real backend is serving `/ws/world`.
 4. Flip to Live mode with a real backend running to show the same UI driven
    by real camera data.
 
+## Game control (object movement → real keyboard input)
+
+Selecting an object and arming **Game Control** turns its movement into
+arrow-key presses (left/right = lane, up/down = jump/duck), so moving the
+physical object can drive an actual focused game window. This is **OFF by
+default** and only sends real OS keystrokes when:
+
+1. The HUD toggle is armed, **and**
+2. `npm run proxy:gamecontrol` is running with `GAME_CONTROL_ALLOW_INJECT=1`
+   (macOS only — uses `osascript`/System Events; first run prompts for
+   Accessibility permission for the terminal running it).
+
+Without the proxy running (or without step 2), arming just logs what *would*
+have been sent — safe to demo the UI without touching anyone's keyboard.
+Gestures fire from velocity, not raw position, with a per-direction cooldown
+— gentle idle motion won't trigger anything; a deliberate swipe will.
+
+**This will send keystrokes to whatever window has focus, not just the
+game** — click the target game window before moving the object.
+
 ## Scripts
 
 - `npm run dev` — Vite dev server
@@ -38,6 +58,9 @@ panel once a real backend is serving `/ws/world`.
 - `npm run proxy:cartesia` — starts the zero-dependency Cartesia proxy
   (`../integrations/cartesia/server.mjs`) on :8787, mock mode unless
   `CARTESIA_API_KEY` is set
+- `npm run proxy:gamecontrol` — starts the zero-dependency keystroke proxy
+  (`../integrations/gamecontrol/server.mjs`) on :8788, mock mode unless
+  `GAME_CONTROL_ALLOW_INJECT=1`
 
 ## What's real vs. mocked
 

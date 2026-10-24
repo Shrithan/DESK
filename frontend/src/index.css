@@ -236,6 +236,23 @@ html, body, #root {
   transform: translateX(14px);
 }
 
+.hud-warning {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: #fca5a5;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.gesture-log {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
 /* Object list */
 
 .hud-object-row {

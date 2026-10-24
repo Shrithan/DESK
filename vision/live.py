@@ -148,6 +148,13 @@ class LiveSession:
             signatures={i:appearance_signature(frame,d['mask']) for i,d in enumerate(detections)} if self.workspace_multi else {}
             edges = []
             reserved=set()
+
+            def unique_match(oid,i):
+                label=self.objects[oid]['label']
+                same_objects=[o for o,m in self.objects.items() if self._compatible(m['label'],label)
+                              and (by_id.get(o) or {}).get('tracking_state') in ('tracked','predicted','lost')]
+                same_detections=[j for j,d in enumerate(detections) if self._compatible(d['label'],label)]
+                return same_objects==[oid] and same_detections==[i]
             for oid, meta in self.objects.items():
                 obs = by_id.get(oid)
                 lost_recently = obs is not None and obs['tracking_state']=='lost' and time.monotonic()-meta['support']<=REACQUIRE_S
@@ -156,6 +163,10 @@ class LiveSession:
                 predicted = self._predicted_center(meta)
                 for i,d in enumerate(detections):
                     score = overlap(d['bbox'],obs['bbox_xyxy'] or meta['bbox'])
+                    if self._compatible(d['label'],meta['label']) and unique_match(oid,i):
+                        # Exactly one track and one detection of this kind: they are the same object,
+                        # however far it moved (flow can lock onto the table during very fast moves).
+                        score=max(score,.5)
                     if predicted is not None and self._compatible(d['label'],meta['label']):
                         # Motion-predicted gating: bridges fast moves where boxes no longer overlap.
                         gate = self._gate_score(meta, predicted, d, signatures.get(i) if signatures else appearance_signature(frame,d['mask']), w, h)

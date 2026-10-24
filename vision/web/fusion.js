@@ -259,6 +259,11 @@ function trackVelocities(c,result,sample){
  for(const id of Object.keys(c.velocity))if(!next[id])delete c.velocity[id];
  c.lastCenters=next;
 }
+function displayBox(b){
+ // Drawn box = tracked box plus a small margin (6 px or 8 %), so a few pixels of jitter or
+ // blur never put the edge of the object outside the box.
+ const pw=Math.max(6,.08*(b[2]-b[0])),ph=Math.max(6,.08*(b[3]-b[1]));return [b[0]-pw,b[1]-ph,b[2]+pw,b[3]+ph];
+}
 function boxLead(c,id,now){
  // The result describes a frame that is already old; lead the box by speed x age (capped) so it
  // sits on the live video instead of trailing a fast object.
@@ -266,7 +271,7 @@ function boxLead(c,id,now){
  const age=Math.max(0,Math.min(150,now-c.acceptedSample));return [v[0]*age,v[1]*age];
 }
 function overlay(role,now=null){const c=cameras[role],canvas=c.overlay;if(canvas.width!==c.canvas.width)canvas.width=c.canvas.width;if(canvas.height!==c.canvas.height)canvas.height=c.canvas.height;const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);
- for(const o of objects(role)){const obs=o.observation;if(!obs.bbox_xyxy||obs.tracking_state==='lost')continue;const pair=pairs.find(p=>p[role]===obs.object_id),color=pair?colors[(pair.number-1)%colors.length]:'#aab8aa';ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2;ctx.setLineDash(obs.tracking_state==='predicted'?[6,5]:[]);const [lx,ly]=boxLead(c,obs.object_id,now),[x,y,x2,y2]=obs.bbox_xyxy.map((v,i)=>v+(i%2?ly:lx));ctx.strokeRect(x,y,x2-x,y2-y);ctx.font='15px sans-serif';ctx.fillText(typeof flatInputs!=='undefined'&&flatInputs.has(obs.object_id)?`2D input #${o.number}`:pair?`Object ${pair.number}`:`#${o.number} ${o.object_label} · unpaired`,x,Math.max(16,y-5));}
+ for(const o of objects(role)){const obs=o.observation;if(!obs.bbox_xyxy||obs.tracking_state==='lost')continue;const pair=pairs.find(p=>p[role]===obs.object_id),color=pair?colors[(pair.number-1)%colors.length]:'#aab8aa';ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2;ctx.setLineDash(obs.tracking_state==='predicted'?[6,5]:[]);const [lx,ly]=boxLead(c,obs.object_id,now),[x,y,x2,y2]=displayBox(obs.bbox_xyxy).map((v,i)=>v+(i%2?ly:lx));ctx.strokeRect(x,y,x2-x,y2-y);ctx.font='15px sans-serif';ctx.fillText(typeof flatInputs!=='undefined'&&flatInputs.has(obs.object_id)?`2D input #${o.number}`:pair?`Object ${pair.number}`:`#${o.number} ${o.object_label} · unpaired`,x,Math.max(16,y-5));}
  // Draw measured side silhouette centerlines and estimated overhead joystick pivots.
  for(const o of objects(role))if(o.observation.tracking_state==='tracked'&&o.skeleton){
   const {base_px:base,top_px:top}=o.skeleton;ctx.strokeStyle='#f2dd83';ctx.fillStyle='#f2dd83';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(...base);ctx.lineTo(...top);ctx.stroke();for(const point of [base,top]){ctx.beginPath();ctx.arc(...point,5,0,Math.PI*2);ctx.fill();}ctx.font='12px sans-serif';ctx.fillText('base pivot',base[0]+7,base[1]);ctx.fillText('top',top[0]+7,top[1]);

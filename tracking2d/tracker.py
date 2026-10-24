@@ -2,6 +2,8 @@
 from dataclasses import dataclass
 from uuid import uuid4
 import cv2
+import time
+
 import numpy as np
 
 
@@ -38,6 +40,10 @@ class Target:
     recovery_box: object = None
     recovery_hits: int = 0
     recovery_generation: int = 0
+    velocity: np.ndarray | None = None   # px per ms of the object's centre, from recent tracked frames
+    last_update_ms: int = 0
+    last_recover_ms: int = -10**9
+    seed_count: int = 0
 
 
 class Tracker:
@@ -102,8 +108,13 @@ class Tracker:
             gap = timestamp_ms - target.last_good_ms
             self.last_timestamp[key] = timestamp_ms
             if target.state == 'lost':
-                if recover_lost:
+                # Full-frame SIFT recovery can cost tens of ms on a 640+ px frame. Only when it was
+                # actually slow, skip it for ~3x its cost so it cannot starve tracking of other objects.
+                if recover_lost and timestamp_ms >= target.last_recover_ms:
+                    started = time.perf_counter()
                     self._recover(target, gray)
+                    cost_ms = (time.perf_counter() - started) * 1000
+                    target.last_recover_ms = timestamp_ms + (int(3 * cost_ms) if cost_ms > 25 else 0)
                 if target.state=='tracked':target.last_good_ms=timestamp_ms
                 observations.append(self._observation(target, cam, timestamp_ms, calibration_version))
                 continue
@@ -112,9 +123,9 @@ class Tracker:
                 observations.append(self._observation(target,cam,timestamp_ms,calibration_version))
                 continue
             valid = None
+            dt = max(1, timestamp_ms - (target.last_update_ms or timestamp_ms - 33))
             if gray.shape == target.gray.shape and gap <= self.tuning.max_gap_ms:
-                nxt, status, _ = cv2.calcOpticalFlowPyrLK(target.gray, gray, target.points, None,
-                        winSize=(self.tuning.flow_window,self.tuning.flow_window),maxLevel=self.tuning.pyramid_levels)
+                nxt, status = self._flow(target, gray, dt)
                 if nxt is not None:
                     back, back_status, _ = cv2.calcOpticalFlowPyrLK(gray, target.gray, nxt, None,
                             winSize=(self.tuning.flow_window,self.tuning.flow_window),maxLevel=self.tuning.pyramid_levels)
@@ -123,6 +134,8 @@ class Tracker:
                         valid &= np.linalg.norm(back-target.points, axis=2).ravel() < self.tuning.flow_error_px
             if valid is None or valid.sum() < max(6, len(target.points)*self.tuning.surviving_fraction):
                 target.state = 'predicted' if gap <= self.tuning.grace_ms else 'lost'
+                if target.state == 'predicted':
+                    self._coast(target, gray, dt)
             else:
                 old = target.points[valid]
                 new = nxt[valid]
@@ -130,6 +143,8 @@ class Tracker:
                                                                ransacReprojThreshold=self.tuning.ransac_error_px)
                 if transform is None or inliers.sum() < max(6, len(old)*self.tuning.inlier_fraction):
                     target.state = 'predicted' if gap <= self.tuning.grace_ms else 'lost'
+                    if target.state == 'predicted':
+                        self._coast(target, gray, dt)
                 else:
                     keep = inliers.ravel().astype(bool)
                     mask = cv2.warpAffine(target.mask, transform, (gray.shape[1], gray.shape[0]),
@@ -139,13 +154,71 @@ class Tracker:
                     else:
                         target.ids = [fid for fid, ok in zip(target.ids, valid) if ok]
                         target.ids = [fid for fid, ok in zip(target.ids, keep) if ok]
+                        moved = np.median(new[keep] - old[keep], axis=0).ravel()
+                        v = moved / dt
+                        target.velocity = v if target.velocity is None else .7 * v + .3 * target.velocity
                         target.points = new[keep]
                         target.mask = mask
                         target.gray = gray
                         target.state='tracked'
                         target.last_good_ms=timestamp_ms
+                        self._replenish(target, gray)
+            target.last_update_ms = timestamp_ms
             observations.append(self._observation(target, cam, timestamp_ms, calibration_version))
         return observations
+
+    def _flow(self, target, gray, dt):
+        """Forward LK seeded with the constant-velocity guess; plain LK as fallback."""
+        win = (self.tuning.flow_window, self.tuning.flow_window)
+        guess = None
+        if target.velocity is not None:
+            shift = np.clip(target.velocity * min(dt, 120), -120, 120).astype(np.float32)
+            if np.hypot(*shift) > 1:
+                guess = target.points + shift.reshape(1, 1, 2)
+        attempts = ([guess] if guess is not None else []) + [None]
+        best = None
+        for g in attempts:
+            if g is None:
+                nxt, status, _ = cv2.calcOpticalFlowPyrLK(target.gray, gray, target.points, None,
+                                                          winSize=win, maxLevel=self.tuning.pyramid_levels)
+            else:
+                nxt, status, _ = cv2.calcOpticalFlowPyrLK(target.gray, gray, target.points, g.copy(), winSize=win,
+                                                          maxLevel=self.tuning.pyramid_levels,
+                                                          flags=cv2.OPTFLOW_USE_INITIAL_FLOW)
+            if nxt is None:
+                continue
+            ok = int((status.ravel() == 1).sum())
+            if best is None or ok > best[2]:
+                best = (nxt, status, ok)
+            if ok >= .6 * len(target.points):
+                break
+        return (best[0], best[1]) if best else (None, None)
+
+    def _replenish(self, target, gray, wanted=120):
+        """Top features back up inside the current mask: points die every frame on fast/blurred motion."""
+        if len(target.points) >= .7 * wanted:
+            return
+        seed = cv2.erode(target.mask, np.ones((5, 5), np.uint8))
+        for pt in target.points:
+            cv2.circle(seed, tuple(map(round, pt[0])), 6, 0, -1)
+        new = cv2.goodFeaturesToTrack(gray, wanted - len(target.points), .01, 5, mask=seed)
+        if new is None:
+            return
+        target.seed_count += 1
+        target.ids = list(target.ids) + [f'{target.object_id}:s{target.seed_count}:f_{i}' for i in range(len(new))]
+        target.points = np.concatenate([target.points, new.astype(np.float32)])
+
+    def _coast(self, target, gray, dt):
+        """While flow is unreliable, move the mask/points along the last velocity so the box keeps up."""
+        if target.velocity is None:
+            return
+        shift = np.clip(target.velocity * min(dt, 120), -120, 120)
+        if np.hypot(*shift) < .5:
+            return
+        M = np.float32([[1, 0, shift[0]], [0, 1, shift[1]]])
+        target.mask = cv2.warpAffine(target.mask, M, (gray.shape[1], gray.shape[0]), flags=cv2.INTER_NEAREST)
+        target.points = target.points + shift.astype(np.float32).reshape(1, 1, 2)
+        target.gray = gray
 
     def _recover(self, target, gray):
         """Match immutable selected appearance; require two consistent detections.

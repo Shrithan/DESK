@@ -145,7 +145,19 @@ function addPair(a,b,manual=false,candidate=null){
  if(manual)pair.confirmed=true;
  pairs.push(pair);
 }
+function relinkPairs(){
+ // A view re-acquired a paired object under a new track ID: move the pair to it instead of
+ // creating a duplicate. Only when exactly one compatible unpaired track exists in that view.
+ for(const p of pairs)for(const role of roles){
+  if(find(role,p[role]))continue;
+  const partner=find(roles.find(r=>r!==role),p[roles.find(r=>r!==role)]);
+  if(!partner||partner.observation.tracking_state==='lost')continue;
+  const options=available(role).filter(o=>compatible(o.object_label,p.label)&&o.observation.tracking_state!=='lost');
+  if(options.length===1){p[role]=options[0].observation.object_id;p.filterState=null;p.filterStamp=null;p.relinked=(p.relinked||0)+1;}
+ }
+}
 function matchObjects(now){
+ relinkPairs();
  const side=available('front'),top=available('top'),current=new Set(),ready=[];
  for(const a of side)for(const b of top){
   if(!compatible(a.object_label,b.object_label))continue;

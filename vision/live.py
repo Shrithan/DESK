@@ -26,6 +26,14 @@ from vision.objects import ObjectSegmenter, DEFAULT_WEIGHTS, overlap, foreground
 LOG = logging.getLogger("phantom.live")
 WEB = Path(__file__).with_name("web")
 MAX_BODY = 2_000_000
+REACQUIRE_S = 5.0  # a lost object keeps its ID if re-detected near its predicted position within this time
+
+
+def colour_similarity(a, b):
+    """Hue/saturation histogram correlation in [0, 1] of two appearance signatures (blur-robust)."""
+    if a is None or b is None:
+        return 0.
+    return max(0., float(cv2.compareHist(a[0], b[0], cv2.HISTCMP_CORREL)))
 
 
 class LiveSession:
@@ -85,7 +93,8 @@ class LiveSession:
         self.focus_score = round(float(cv2.Laplacian(gray,cv2.CV_64F).var()),1)
         # Keep expensive recognition off most frames while optical flow is healthy.
         healthy=bool(self.objects) and all(m['observation']['tracking_state']=='tracked' for m in self.objects.values())
-        interval=.35 if self.workspace_multi and healthy else .12
+        moving=any(m.get('velocity') is not None and np.linalg.norm(m['velocity'])>150 for m in self.objects.values())
+        interval=.35 if self.workspace_multi and healthy and not moving else .12
         fresh_detection = self.engine is not None and time.monotonic()-self.last_detection > interval
         if fresh_detection:
             self.detections = self.engine.detect(frame)
@@ -127,10 +136,18 @@ class LiveSession:
             reserved=set()
             for oid, meta in self.objects.items():
                 obs = by_id.get(oid)
-                if not obs or (obs['tracking_state'] not in ('tracked','predicted') and not (self.single_target or self.workspace_multi)):
+                lost_recently = obs is not None and obs['tracking_state']=='lost' and time.monotonic()-meta['support']<=REACQUIRE_S
+                if not obs or (obs['tracking_state'] not in ('tracked','predicted') and not (self.single_target or self.workspace_multi or lost_recently)):
                     continue
+                predicted = self._predicted_center(meta)
                 for i,d in enumerate(detections):
                     score = overlap(d['bbox'],obs['bbox_xyxy'] or meta['bbox'])
+                    if predicted is not None and self._compatible(d['label'],meta['label']):
+                        # Motion-predicted gating: bridges fast moves where boxes no longer overlap.
+                        gate = self._gate_score(meta, predicted, d, signatures.get(i) if signatures else appearance_signature(frame,d['mask']), w, h)
+                        if gate > score:
+                            score = gate
+                            if obs['tracking_state']=='lost':reserved.add(i)
                     if self.single_target and len(detections)==1 and self._compatible(d['label'],meta['label']):
                         # One foreground container in the asserted single-object scene.
                         # This also bridges fast moves that break optical-flow overlap.
@@ -236,12 +253,53 @@ class LiveSession:
                 obs=self.tracker._observation(target,self.camera_id,self.last_timestamp,'uncalibrated-live')
             if obs['bbox_xyxy'] is not None:
                 meta['bbox']=obs['bbox_xyxy']
+                if obs['tracking_state']=='tracked':
+                    x,y,x2,y2=obs['bbox_xyxy']; c=np.array([(x+x2)/2,(y+y2)/2]); now=time.monotonic()
+                    last=meta.get('last_center')
+                    if last is not None and now>last[1]:
+                        v=(c-last[0])/(now-last[1])
+                        meta['velocity']=v if meta.get('velocity') is None else .6*v+.4*meta['velocity']
+                    meta['last_center']=(c,now)
             meta['observation']=obs
         self._primary()
         response = self.result()
         response['processing_ms'] = round((time.perf_counter()-started)*1000, 2)
         response['selection_reset'] = resized
         return response
+
+    def _predicted_center(self, meta):
+        """Constant-velocity guess of where the object is now (pixels), from its last tracked centre."""
+        last=meta.get('last_center')
+        if last is None:
+            return None
+        dt=min(time.monotonic()-last[1],1.0)
+        v=meta.get('velocity')
+        return last[0]+(v*dt if v is not None else 0)
+
+    def _gate_score(self, meta, predicted, d, signature, w, h):
+        """Score in [0, .9] for re-attaching detection d to an existing track near its predicted position."""
+        old=meta['bbox']; new=d['bbox']
+        ow,oh=max(1,old[2]-old[0]),max(1,old[3]-old[1])
+        ratio=((new[2]-new[0])*(new[3]-new[1]))/(ow*oh)
+        if not .35<=ratio<=2.8:
+            return 0.
+        center=np.array([(new[0]+new[2])/2,(new[1]+new[3])/2])
+        speed=float(np.linalg.norm(meta.get('velocity'))) if meta.get('velocity') is not None else 0.
+        dt=min(time.monotonic()-meta['last_center'][1],1.0)
+        radius=min(.45*np.hypot(w,h), max(ow,oh)*1.5+.06*np.hypot(w,h)+.6*speed*dt)
+        distance=float(np.linalg.norm(center-predicted))
+        if distance>radius:
+            return 0.
+        # Appearance is a tie-breaker, not a veto: motion blur during a fast move changes both the
+        # texture and the colour histogram. Only a clear mismatch on both is rejected; ambiguous
+        # candidates are still held back by the crossing rule in receive().
+        colour=max(colour_similarity(meta.get('appearance'),signature),
+                   colour_similarity(meta.get('reference_appearance'),signature))
+        full=max(appearance_similarity(meta.get('appearance'),signature),
+                 appearance_similarity(meta.get('reference_appearance'),signature))
+        if colour<.15 and full<.25:
+            return 0.  # something else of the same class
+        return .3+.4*(1-distance/radius)+.2*max(colour,full)
 
     def _add_object(self, mask, label, source):
         ys,xs=np.nonzero(mask)

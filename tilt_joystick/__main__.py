@@ -90,6 +90,71 @@ def start_pause_hotkey(name: str, toggle) -> object | None:
         return None
 
 
+class Processor:
+    """Camera thread: newest frame -> detector -> pipeline (keys). The UI thread only reads `latest`,
+    so drawing and window events never delay a key."""
+
+    def __init__(self, camera, detector, pipeline, width: int, record, budget_ms: float) -> None:
+        self.camera, self.detector, self.pipeline = camera, detector, pipeline
+        self.width, self.record, self.budget = width, record, budget_ms
+        self.latest = None  # (frame, det, state, held)
+        self.stats: dict = {'mode': detector.mode}
+        self.running = True
+        self.error: BaseException | None = None
+        self.reset_requested = False  # set by the UI thread; applied here so the detector has one owner
+        self.thread = threading.Thread(target=self._run, daemon=True, name='can-joystick')
+
+    def _run(self) -> None:
+        import cv2
+        e2e, stamps, stage_sum, n, last_print, last_id = deque(maxlen=300), deque(maxlen=60), {}, 0, time.perf_counter(), -1
+        try:
+            while self.running:
+                prev_id = last_id
+                frame, t_cap, last_id = self.camera.next(prev_id)
+                if frame is None or last_id == prev_id:  # stalled/ended: the dropout rule releases keys
+                    self.pipeline.step(None, time.perf_counter() * 1000)
+                    if not self.camera.running:
+                        break
+                    continue
+                if self.reset_requested:
+                    self.reset_requested = False
+                    self.detector.reset_lock()
+                t0 = time.perf_counter()
+                if frame.shape[1] != self.width:
+                    frame = cv2.resize(frame, (self.width, round(frame.shape[0] * self.width / frame.shape[1])),
+                                       interpolation=cv2.INTER_AREA)
+                t1 = time.perf_counter()
+                det, feats = self.detector.track(frame)
+                t2 = time.perf_counter()
+                state = self.pipeline.step(feats, t_cap * 1000)
+                t3 = time.perf_counter()  # key events have been sent
+                self.latest = (frame, det, state, self.pipeline.held)
+                if self.record:
+                    self.record.write(json.dumps({'t_ms': round(t_cap * 1000, 2), 'f': feats.to_dict() if feats else None}) + '\n')
+                e2e.append((t3 - t_cap) * 1000)
+                stamps.append(t3)
+                for name, v in (('queue', t0 - t_cap), ('resize', t1 - t0), ('track', t2 - t1), ('keys', t3 - t2)):
+                    stage_sum[name] = stage_sum.get(name, 0) + v * 1000
+                n += 1
+                if len(stamps) > 1:
+                    self.stats.update(fps=(len(stamps) - 1) / (stamps[-1] - stamps[0]), e2e_ms=float(np.mean(e2e)),
+                                      e2e_p95=float(np.percentile(e2e, 95)), model_ms=self.detector.model_ms,
+                                      flow_ms=self.detector.flow_ms)
+                if t3 - last_print >= 1.0:
+                    parts = '  '.join(f'{k} {v / n:.1f}' for k, v in stage_sum.items())
+                    over = '  OVER BUDGET' if self.stats.get('e2e_p95', 0) > self.budget else ''
+                    print(f"fps {self.stats.get('fps', 0):5.1f} | frame->key mean {self.stats.get('e2e_ms', 0):.1f} ms "
+                          f"p95 {self.stats.get('e2e_p95', 0):.1f} ms{over} | ms/frame: {parts} | model {self.detector.model_ms:.0f} ms "
+                          f"(background) | {state.status} held={sorted(self.pipeline.held)}", flush=True)
+                    stage_sum, n, last_print = {}, 0, t3
+        except BaseException as exc:  # never leave a key down because the camera thread died
+            self.error = exc
+            log.exception('processing thread failed')
+        finally:
+            self.pipeline.release_all()
+            self.running = False
+
+
 def run_live(args, config, pipeline: TiltPipeline) -> None:
     import cv2
     from tilt_joystick.detector import CanDetector
@@ -97,69 +162,39 @@ def run_live(args, config, pipeline: TiltPipeline) -> None:
 
     detector = CanDetector(config.detector)
     print(f'detector: {detector.describe()}' + (f"  ({'; '.join(detector.notes)})" if detector.notes else ''))
-    camera = LatestFrame(args.camera)
+    width = config.detector.proc_width
+    camera = LatestFrame(args.camera, width, round(width * 3 / 4))  # C270: 640x480 is a native mode
     overlay = Overlay(config.keys)
     record = open(args.record, 'w') if args.record else None
     hotkey = start_pause_hotkey(config.keys.pause_hotkey, lambda: pipeline.set_paused(not pipeline.paused))
-    e2e, stamps = deque(maxlen=300), deque(maxlen=60)
-    stage_sum: dict[str, float] = {}
-    n, last_print, last_id = 0, time.perf_counter(), -1
-    stats = {'mode': detector.mode}
+    proc = Processor(camera, detector, pipeline, width, record, config.latency_budget_ms)
+    proc.thread.start()
     try:
-        while True:
-            prev_id = last_id
-            frame, t_cap, last_id = camera.next(prev_id)
-            if frame is None or last_id == prev_id:  # camera stalled/ended: the dropout rule releases keys
-                pipeline.step(None, time.perf_counter() * 1000)
-                if not camera.running:
-                    break
-                continue
-            t0 = time.perf_counter()
-            det, feats = detector.track(frame)
-            t1 = time.perf_counter()
-            t_ms = t_cap * 1000
-            state = pipeline.step(feats, t_ms)
-            t2 = time.perf_counter()  # keys have been sent at this point
-            if record:
-                record.write(json.dumps({'t_ms': round(t_ms, 2), 'f': feats.to_dict() if feats else None}) + '\n')
-            e2e.append((t2 - t_cap) * 1000)
-            stamps.append(t2)
-            img = overlay.draw(frame, det, pipeline.estimator, state, pipeline.held, pipeline.paused, stats)
-            cv2.imshow('Can joystick', img)
-            key = cv2.waitKey(1) & 0xFF
-            t3 = time.perf_counter()
-            for name, v in (('wait', t0 - t_cap), ('detect', t1 - t0), ('model', detector.model_ms / 1000),
-                            ('estimate+keys', t2 - t1), ('draw', t3 - t2)):
-                stage_sum[name] = stage_sum.get(name, 0) + v * 1000
-            n += 1
-            if len(stamps) > 1:
-                stats.update(fps=(len(stamps) - 1) / (stamps[-1] - stamps[0]), e2e_ms=float(np.mean(e2e)),
-                             e2e_p95=float(np.percentile(e2e, 95)), model_ms=detector.model_ms)
-            if t3 - last_print >= 1.0:
-                parts = '  '.join(f'{k} {v / n:.1f}' for k, v in stage_sum.items())
-                over = '  OVER BUDGET' if stats.get('e2e_p95', 0) > config.latency_budget_ms else ''
-                print(f"fps {stats.get('fps', 0):5.1f} | e2e capture->key mean {stats.get('e2e_ms', 0):.0f} ms "
-                      f"p95 {stats.get('e2e_p95', 0):.0f} ms{over} | ms/frame: {parts} | {state.status} held={sorted(pipeline.held)}",
-                      flush=True)
-                stage_sum, n, last_print = {}, 0, t3
+        while proc.running:
+            if proc.latest is not None:
+                frame, det, state, held = proc.latest
+                cv2.imshow('Can joystick', overlay.draw(frame, det, pipeline.estimator, state, held, pipeline.paused, proc.stats))
+            key = cv2.waitKey(15) & 0xFF
             if key in (ord('q'), 27):
                 break
             if key == ord(' '):
                 pipeline.set_paused(not pipeline.paused)
-            elif key == ord('c'):
-                detector.reset_lock(); pipeline.recalibrate()
-            elif key == ord('r'):
-                detector.reset_lock(); pipeline.recalibrate(direction=True)
-            if not camera.running and not camera.live:
-                break
+            elif key in (ord('c'), ord('r')):
+                proc.reset_requested = True
+                pipeline.recalibrate(direction=key == ord('r'))
     finally:
+        proc.running = False
         pipeline.close()
+        proc.thread.join(timeout=1)
+        detector.close()
         camera.close()
         if hotkey is not None:
             hotkey.stop()
         if record:
             record.close()
         cv2.destroyAllWindows()
+    if proc.error:
+        raise proc.error
 
 
 def main(argv=None) -> int:

@@ -20,4 +20,7 @@ assert.equal(c.stickContinuity(state,{x:0,y:1},1410).y,1,'reacquisition resumes 
 const input={},side={observation:{object_id:'one'},skeleton:{base_px:[0,100],top_px:[0,0],projected_lean_degrees:4}};
 assert.equal(c.tiltStick(input,side,1000),0,'tilt saves neutral');side.skeleton.projected_lean_degrees=16;assert.ok(c.tiltStick(input,side,1100)>0);
 side.skeleton.base_px=[80,100];assert.equal(c.tiltStick(input,side,1200),null,'moving base rejects tilt');
+let k=c.stickKeys({x:Math.sin(.17),y:Math.cos(.17)});assert.deepEqual({...k},{W:true,A:false,S:false,D:false});
+for(const deg of [20,25,30,32,24,31,22.6]){const a=deg*Math.PI/180;k=c.stickKeys({x:Math.sin(a),y:Math.cos(a)},k);assert.ok(k.W&&!k.D,'no flicker near the 22.5 deg edge: '+deg);}
+k=c.stickKeys({x:Math.sin(33*Math.PI/180),y:Math.cos(33*Math.PI/180)},k);assert.ok(k.W&&k.D,'diagonal after the hysteresis band');
 console.log('Stick checks passed: corrected axes, small travel, hysteresis, bounded gap decay, reacquisition and stable-base tilt.');

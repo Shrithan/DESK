@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from backend.tilt_keys.one_euro import OneEuroFilter
+from tilt_joystick.filters import OneEuro as OneEuroFilter
 from tilt_joystick.config import FilterConfig, TiltConfig
 from tilt_joystick.features import MaskFeatures
 
@@ -47,6 +47,7 @@ class JoystickState:
     prompt: str = ''
     confidence: float = 0.0
     raw: tuple[float, float] = (0.0, 0.0)
+    raw_img: tuple[float, float] = (0.0, 0.0)  # fused tilt in image pixels / r0 (for drawing)
 
 
 class TiltEstimator:
@@ -78,6 +79,7 @@ class TiltEstimator:
         self.still_since: float | None = None
         self.prev_raw: tuple[float, float] | None = None
         self.shape_level = 0.0
+        self.raw_img = (0.0, 0.0)
         self.wait_upright = False
         self.fx.reset(); self.fy.reset()
 
@@ -92,8 +94,13 @@ class TiltEstimator:
             self.t0 = t_ms
         pts = np.array([[s.cx, s.cy] for s in self.samples])
         r = math.sqrt(np.mean([s.area for s in self.samples]) / math.pi)
-        if len(self.samples) > 3 and float(np.linalg.norm(pts.std(axis=0))) / r > self.cfg.neutral_max_jitter:
-            self.samples, self.t0 = [f], t_ms  # moved: start the second over
+        if len(self.samples) >= 10:
+            # Real movement shows up as drift between the two halves; allow for what pixel noise alone gives.
+            half = len(pts) // 2
+            drift = float(np.linalg.norm(pts[:half].mean(axis=0) - pts[half:].mean(axis=0)))
+            noise = float(np.linalg.norm(pts.std(axis=0))) * math.sqrt(4 / len(pts))
+            if drift > self.cfg.neutral_max_jitter * r + 2.5 * noise or float(np.linalg.norm(pts.std(axis=0))) / r > 0.25:
+                self.samples, self.t0 = [f], t_ms  # moved: start the second over
         if t_ms - self.t0 < self.cfg.neutral_s * 1000 or len(self.samples) < 5:
             done = (t_ms - self.t0) / (self.cfg.neutral_s * 1000)
             return JoystickState(status='neutral', prompt=f'Hold the can upright and still... {min(done, 1):.0%}',
@@ -150,6 +157,7 @@ class TiltEstimator:
         if abs(dot) > 0.02:
             self.shape_sign = 1.0 if dot > 0 else -1.0
         fused = self.cfg.centroid_weight * vc + self.cfg.shape_weight * size * self.shape_sign * axis
+        self.raw_img = (float(fused[0]), float(fused[1]))
         x, y = self.direction.apply(float(fused[0]), float(fused[1]))
         return x / self.cfg.full_scale, y / self.cfg.full_scale
 
@@ -172,6 +180,7 @@ class TiltEstimator:
             return self.last
         self.last_good_ms = t_ms
         x, y = self.fx(raw[0], int(t_ms)), self.fy(raw[1], int(t_ms))
+        x, y = self._lead(x, y)
         mag = math.hypot(x, y)
         if mag > 1:
             x, y, mag = x / mag, y / mag, 1.0
@@ -182,14 +191,26 @@ class TiltEstimator:
                                           confidence=f.confidence, prompt='Return the can upright to start')
                 return self.last
             self.wait_upright = False
-        self.last = JoystickState(x=x, y=y, mag=mag, valid=True, status='running', confidence=f.confidence, raw=raw)
+        self.last = JoystickState(x=x, y=y, mag=mag, valid=True, status='running', confidence=f.confidence, raw=raw,
+                                  raw_img=self.raw_img)
         return self.last
+
+    def _lead(self, x: float, y: float) -> tuple[float, float]:
+        """Extrapolate along the filtered velocity by lead_ms. Never past the centre: on a snap back
+        to upright the prediction stops at zero instead of overshooting into the opposite key."""
+        lead = self.cfg.lead_ms / 1000
+        if lead <= 0:
+            return x, y
+        px, py = x + self.fx.velocity * lead, y + self.fy.velocity * lead
+        if px * x + py * y < 0:
+            return 0.0, 0.0
+        return px, py
 
     def _dropout(self, t_ms: float) -> JoystickState:
         if self.phase == 'running' and self.last.valid and self.last_good_ms is not None \
                 and t_ms - self.last_good_ms <= self.cfg.hold_ms:
             s = self.last
-            return JoystickState(x=s.x, y=s.y, mag=s.mag, valid=True, status='holding', raw=s.raw,
+            return JoystickState(x=s.x, y=s.y, mag=s.mag, valid=True, status='holding', raw=s.raw, raw_img=s.raw_img,
                                  confidence=0.0, prompt='')
         self.fx.reset(); self.fy.reset()
         self.still_since = None

@@ -5,12 +5,23 @@ function canStick(value,origin,gain=30,flip={}){
  const output={x:(-y/length)||0,y:(x/length)||0};
  return {...output,direction:Math.hypot(output.x,output.y)>.1?Math.atan2(output.x,output.y)*180/Math.PI:null};
 }
+// 8 sectors of 45 deg with magnitude hysteresis (press > .18, release < .12) and angle hysteresis:
+// the held sector only changes once the stick is 10 deg past its edge. Checking each axis on its own
+// (the old way) made diagonals flicker W -> W+D -> D -> W+D as the angle wobbled near 45 deg.
+const STICK_SECTORS=[['W'],['W','D'],['D'],['S','D'],['S'],['S','A'],['A'],['W','A']];
 function stickKeys(stick,previous={},active=true){
- if(!active||!stick)return {W:false,A:false,S:false,D:false};
- const pressed=(key,value)=>value>(previous[key] ? .12 : .18);
- return {W:pressed('W',stick.y),A:pressed('A',-stick.x),S:pressed('S',-stick.y),D:pressed('D',stick.x)};
+ const none={W:false,A:false,S:false,D:false};
+ const mag=stick?Math.hypot(stick.x,stick.y):0;
+ const held=previous&&typeof previous._sector==='number'?previous._sector:null;
+ if(!active||!stick||!Number.isFinite(mag)||mag<(held===null?.18:.12)||(held===null&&mag<=.18))return none;
+ const angle=((Math.atan2(stick.x,stick.y)*180/Math.PI)+360)%360;
+ let sector=held;
+ const off=held===null?Infinity:Math.abs(((angle-held*45)%360+540)%360-180);
+ if(off>22.5+10)sector=Math.round(angle/45)%8;
+ const keys={...none};for(const k of STICK_SECTORS[sector])keys[k]=true;
+ Object.defineProperty(keys,'_sector',{value:sector,enumerable:false});
+ return keys;
 }
-
 // Hold a measured input briefly, then ease to zero; never extrapolate off-screen motion.
 function stickContinuity(state,target,now,sample=now){
  if(target){state.last={...target};state.seen=sample;}

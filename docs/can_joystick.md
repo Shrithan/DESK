@@ -103,6 +103,44 @@ python -m tilt_joystick --replay runs/tilt1.jsonl --config my.toml --events-log 
 2. Run without `--dry-run` and hold each tilt for 3 s.
 3. Expect one DOWN, the hold timer growing, one UP, and `flicker 0`.
 
+## Latency: bottlenecks found and fixed
+Benchmark: `python3 tests/bench_joystick.py --costs` (logic) and `python3 tests/bench_joystick.py --detector` (full detector path).
+
+**Logic benchmark setup:** the same simulated overhead camera for every row: 640×360 at 30 fps, a 120 ms tilt, 8 directions × 3 runs, 0.6 px silhouette noise.
+
+| at 12° / 20° tilt | press delay (mean) | release delay (mean / worst) | extra key flips |
+|---|---|---|---|
+| Aadi web stick (before) | 101 / 72 ms | 168–178 / 400 ms | 26 / 21 |
+| Aadi web stick + sector keys (now) | similar | similar | 12 / 12 (and 0 flicker at the 22.5° edge) |
+| tilt_joystick (now) | 67 / 67 ms | 111–132 / 133 ms | **0 / 0** |
+| ideal (same thresholds, no noise, no filter) | 67 / 33 ms | 100–133 ms | 0 |
+
+Press and release delays are measured from the start of the tilt, so part of them is the can still moving. The "ideal" row is the floor.
+
+**Full detector path:** frames arrive in real time and stale frames are dropped. The stub model returns the true outline after a fixed time. "Added delay" is measured against perfect per-frame outlines:
+
+| | added key delay (mean / max) | compute per frame |
+|---|---|---|
+| model in the frame→key path (before), 30 ms model | 49 / 62 ms | 31 ms |
+| background model + ROI flow (now), 30 ms model | **7 / 39 ms** | **2.0 ms** |
+| model in path (before), 60 ms model | 78 / 87 ms | 61 ms |
+| background model + ROI flow (now), 60 ms model | **14 / 45 ms** | **2.0 ms** |
+
+### Fixes
+1. **The model was in the frame→key path.** It now runs in a background thread on the newest frame. Each frame is tracked by LK optical flow in a small box around the can, with a full affine so a tilt's stretch is followed, not just its shift. A model result (from an older frame) is flowed forward to the current frame before use, so it's never stale.
+2. **Full-frame work:**
+   - Flow on 1280×720 cost 16–20 ms. It's now an ROI at 640 px, about 1–2 ms.
+   - Rasterising a 1280×720 mask for moments cost 1.4 ms. It now uses polygon moments, 0.003 ms.
+   - `retina_masks` is off.
+   - Capture is 640×480 (a native C270 mode, so no resize).
+3. **Drawing blocked the next frame.** Camera, model and keys now run in a processing thread. The window only reads the latest result, so drawing never delays a key.
+4. **Filter lag.** One Euro was retuned (min_cutoff 2.5 Hz, beta 1.5) from a grid search under 0.6–2.5 px noise. A 30 ms velocity look-ahead (`tilt.lead_ms`) cancels the remaining lag. It never extrapolates past centre, so a snap back can't press the opposite key.
+5. **Calibration under noise.** The "hold still" check now compares drift between the two halves of the second against what noise alone would give. Before, real-world jitter made it restart forever and then calibrate on a tilted can.
+6. **Aadi's web stick (`vision/web/stick.js`).** Each axis was checked on its own, so diagonals flickered. It now uses 8 sectors with 10° hysteresis at the same .18/.12 thresholds. His behaviour tests still pass, and new tests cover the 22.5° edge.
+   - **Its remaining limit is the input signal:** only the overhead centroid, multiplied by 30 and normalised. Under noise it still misses some directions. That is why the key path is `tilt_joystick`.
+
+**Not measurable here:** camera exposure plus USB, typically 30–60 ms on a C270. The console line `frame->key` measures from frame arrival to keys sent.
+
 ## Tests
 ```bash
 python -m pytest -q tests/can_joystick tests/tilt_keys

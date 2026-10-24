@@ -1,5 +1,6 @@
 import json
 
+import cv2
 import numpy as np
 
 from tests.can_joystick.synth import can_mask, feats
@@ -21,7 +22,8 @@ def test_overlay_draws(tmp_path):
         state = est.update(feats(), i * 33.3)
     state = est.update(feats(tilt_deg=20), 40 * 33.3)
     m = can_mask(tilt_deg=20)
-    img = Overlay(cfg.keys).draw(np.zeros((480, 640, 3), np.uint8), Detection(m, .9, 1, (0, 0, 1, 1)), est, state,
+    poly = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0][0].reshape(-1, 2).astype(np.float32)
+    img = Overlay(cfg.keys).draw(np.zeros((480, 640, 3), np.uint8), Detection(poly, .9, 1), est, state,
                                  frozenset({'w'}), False, {'fps': 30})
     assert img.shape[0] == 480 and img.shape[1] > 640
 

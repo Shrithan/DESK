@@ -20,18 +20,15 @@ class Overlay:
     def draw(self, frame, det, estimator, state, held, paused, stats: dict) -> np.ndarray:
         img = frame.copy()
         if det is not None:
-            contours, _ = cv2.findContours(det.mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            cv2.drawContours(img, contours, -1, GREEN if det.kind == 'seg' else YELLOW, 2)
+            cv2.polylines(img, [np.round(det.polygon).astype(np.int32)], True,
+                          GREEN if det.kind == 'seg' else (YELLOW if det.kind == 'box' else CYAN), 2)
         if estimator.anchor is not None:
             ax, ay = map(int, estimator.anchor)
             cv2.circle(img, (ax, ay), int(estimator.r0), CYAN, 1)
             cv2.drawMarker(img, (ax, ay), CYAN, cv2.MARKER_CROSS, 14, 2)
-            if det is not None and state.valid:
-                m = cv2.moments(det.mask, binaryImage=True)
-                if m['m00']:
-                    cx, cy = m['m10'] / m['m00'], m['m01'] / m['m00']
-                    tip = (int(ax + 4 * (cx - ax)), int(ay + 4 * (cy - ay)))  # x4 so small tilts are visible
-                    cv2.arrowedLine(img, (ax, ay), tip, RED, 3, tipLength=.25)
+            if state.valid:  # arrow = joystick vector drawn in image space (x4 so small tilts are visible)
+                tip = (int(ax + state.raw_img[0] * estimator.r0 * 4), int(ay + state.raw_img[1] * estimator.r0 * 4))
+                cv2.arrowedLine(img, (ax, ay), tip, RED, 3, tipLength=.25)
         scale = 480 / img.shape[0]
         img = cv2.resize(img, (int(img.shape[1] * scale), 480))
         prompt = 'PAUSED (space to resume)' if paused else (state.prompt or ('LOST: keys released' if state.status == 'lost' else ''))
@@ -65,7 +62,7 @@ class Overlay:
             cv2.putText(p, key.upper(), (x + 12, y + 30), cv2.FONT_HERSHEY_SIMPLEX, .8, (0, 0, 0) if on else WHITE, 2)
         lines = [f"{state.status}   mag {state.mag:.2f}   conf {state.confidence:.2f}",
                  f"fps {stats.get('fps', 0):.1f}   e2e {stats.get('e2e_ms', 0):.0f} ms (p95 {stats.get('e2e_p95', 0):.0f})",
-                 f"model {stats.get('model_ms', 0):.0f} ms  {stats.get('mode', '')}",
+                 f"model {stats.get('model_ms', 0):.0f} ms (off path)  flow {stats.get('flow_ms', 0):.1f} ms",
                  "space pause  c neutral  r W/D dir  q quit"]
         for i, text in enumerate(lines):
             cv2.putText(p, text, (10, 378 + i * 24), cv2.FONT_HERSHEY_SIMPLEX, .45, WHITE, 1, cv2.LINE_AA)

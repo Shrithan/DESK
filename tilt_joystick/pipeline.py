@@ -5,6 +5,7 @@ Shared by the live camera loop and by replay, so a recording reproduces the exac
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 from backend.tilt_keys.output import EdgeTriggeredOutput
@@ -42,50 +43,56 @@ class TiltPipeline:
         self.paused = False
         self.state = JoystickState()
         self.closed = False
+        self.lock = threading.RLock()  # camera thread steps; UI thread pauses/recalibrates
 
     @property
     def held(self) -> frozenset[str]:
         return self.output.held
 
     def step(self, features: MaskFeatures | None, t_ms: float) -> JoystickState:
-        was = self.estimator.phase
-        state = self.estimator.update(features, t_ms)
-        if was.startswith('direction') and self.estimator.phase == 'running':
-            save_direction(self.estimator.direction)
-        active = state.valid and not self.paused and state.status in ('running', 'holding')
-        keys = self.mapper.update(state.x, state.y, active)
-        self.output.set_held(keys)
-        self.state = state
-        self.bus.publish('joystick', {'x': round(state.x, 4), 'y': round(state.y, 4), 'mag': round(state.mag, 4),
-                                      'status': state.status, 'valid': state.valid, 't_ms': round(t_ms, 1)})
-        return state
+        with self.lock:
+            was = self.estimator.phase
+            state = self.estimator.update(features, t_ms)
+            if was.startswith('direction') and self.estimator.phase == 'running':
+                save_direction(self.estimator.direction)
+            active = state.valid and not self.paused and state.status in ('running', 'holding')
+            keys = self.mapper.update(state.x, state.y, active)
+            self.output.set_held(keys)
+            self.state = state
+            self.bus.publish('joystick', {'x': round(state.x, 4), 'y': round(state.y, 4), 'mag': round(state.mag, 4),
+                                          'status': state.status, 'valid': state.valid, 't_ms': round(t_ms, 1)})
+            return state
 
     def set_paused(self, paused: bool) -> None:
-        self.paused = paused
-        if paused:
-            self.mapper.reset()
-            self.output.release_all()
-        self.bus.publish('status', {'paused': paused})
+        with self.lock:
+            self.paused = paused
+            if paused:
+                self.mapper.reset()
+                self.output.release_all()
+            self.bus.publish('status', {'paused': paused})
 
     def recalibrate(self, direction: bool = False) -> None:
-        self.mapper.reset()
-        self.output.release_all()
-        self.estimator.recalibrate(direction=direction or None)
-        if direction:
-            self.estimator.want_direction = True
+        with self.lock:
+            self.mapper.reset()
+            self.output.release_all()
+            self.estimator.recalibrate(direction=direction or None)
+            if direction:
+                self.estimator.want_direction = True
 
     def release_all(self) -> None:
-        self.mapper.reset()
-        self.output.release_all()
+        with self.lock:
+            self.mapper.reset()
+            self.output.release_all()
 
     def close(self) -> None:
-        if self.closed:
-            return
-        self.closed = True
-        try:
-            self.release_all()
-        finally:
-            self.backend.close()
+        with self.lock:
+            if self.closed:
+                return
+            self.closed = True
+            try:
+                self.release_all()
+            finally:
+                self.backend.close()
 
 
 def replay(path: str | Path, pipeline: TiltPipeline) -> list[tuple[float, frozenset[str], JoystickState]]:

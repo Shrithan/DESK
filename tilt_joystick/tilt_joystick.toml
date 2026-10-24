@@ -8,12 +8,14 @@ fallback_weights = "yolov8s-worldv2.pt"
 confidence = 0.15
 image_size = 480        # lower = faster; 416-640
 device = "auto"         # auto | mps | cuda | cpu
-detect_every = 1        # 2-3 if fps < 30: optical flow carries the mask between model runs
+detect_every = 1        # sync mode only: 2-3 if fps < 30
+async_model = true      # model off the frame->key path; per-frame ROI optical flow carries the outline
+proc_width = 640
 tracker = "bytetrack.yaml"
 
 [tilt]
 neutral_s = 1.0
-neutral_max_jitter = 0.04
+neutral_max_jitter = 0.06
 centroid_weight = 1.0
 shape_weight = 0.8
 full_scale = 1.0        # can radii of shift for a full push (~22 deg from above; press at ~7 deg). Smaller = more sensitive
@@ -25,10 +27,11 @@ recenter_mag = 0.12
 recenter_max = 0.5
 recenter_rate = 0.5
 hold_ms = 250
+lead_ms = 30.0          # velocity look-ahead that cancels camera + filter lag; 0 = off
 
 [filter]               # One Euro: min_cutoff lower = less jitter at rest; beta higher = less lag when moving
-min_cutoff_hz = 1.5
-beta = 4.0
+min_cutoff_hz = 2.5
+beta = 1.5
 d_cutoff_hz = 1.0
 
 [keys]

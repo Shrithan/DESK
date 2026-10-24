@@ -20,14 +20,17 @@ class DetectorConfig:
     confidence: float = 0.15
     image_size: int = 480
     device: str = 'auto'  # auto -> cuda, mps, cpu
-    detect_every: int = 1  # run the model every N frames; optical flow carries the mask in between
+    detect_every: int = 1  # sync mode only: run the model every N frames; optical flow carries the mask in between
+    async_model: bool = True  # model runs in a background thread; every frame is tracked by ~1 ms ROI flow, so
+                              # model time is not in the frame->key path
+    proc_width: int = 640  # frames are processed at this width (C270 640x480 native mode avoids the resize)
     tracker: str = 'bytetrack.yaml'
 
 
 @dataclass(frozen=True)
 class TiltConfig:
     neutral_s: float = 1.0  # hold upright this long to calibrate
-    neutral_max_jitter: float = 0.04  # centroid std / radius allowed while calibrating
+    neutral_max_jitter: float = 0.06  # centroid drift (first vs second half) / radius allowed while calibrating
     centroid_weight: float = 1.0  # tilt from centroid shift (fraction of the can radius)
     shape_weight: float = 0.8  # tilt from elongation (major/minor ratio growth)
     full_scale: float = 1.0  # fused tilt (in can radii) for magnitude 1.0: ~22 deg seen from above, press ~7 deg
@@ -39,12 +42,13 @@ class TiltConfig:
     recenter_max: float = 0.5  # never re-centre while the joystick reads more than this
     recenter_rate: float = 0.5  # fraction of the offset removed per second while re-centring
     hold_ms: float = 250  # keep the last value through a dropout this long, then release everything
+    lead_ms: float = 30.0  # predict this far ahead from the filtered velocity (cancels camera+filter lag); 0 = off
 
 
 @dataclass(frozen=True)
 class FilterConfig:
-    min_cutoff_hz: float = 1.5
-    beta: float = 4.0
+    min_cutoff_hz: float = 2.5
+    beta: float = 1.5
     d_cutoff_hz: float = 1.0
 
 

@@ -296,11 +296,34 @@ async function pump(role,g){
  try{await c.inFlight;}catch(err){if(g===generation){error(err.message);c.result=null;c.acceptedSample=null;for(const p of pairs){p.position=null;p.prediction=null;p.visual=null;p.points.push(null);}clearOverlay(role);draw();}}finally{c.inFlight=null;}
  if(running&&g===generation)c.timer=setTimeout(()=>pump(role,g),0);
 }
+// Interactive orbit view for the 3D map: drag to rotate, wheel/pinch to zoom, double-click to reset.
+// The default angles reproduce the original fixed isometric view.
+const VIEW_DEFAULT={yaw:45,pitch:30,zoom:1};const view={...VIEW_DEFAULT};
+function orbitProjection(w,h,scale){
+ const yaw=view.yaw*Math.PI/180,pitch=view.pitch*Math.PI/180,k=scale*view.zoom*.9;
+ const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);
+ // rotate about Z (yaw), then tilt the view down by pitch; screen x = right, screen y = down
+ return ([x,y,z])=>{const rx=x*cy-y*sy,ry=x*sy+y*cy;return [w*.5+rx*k,h*.5+(ry*sp-z*cp)*k];};
+}
+function attachOrbitControls(canvas){
+ if(!canvas||canvas.dataset.orbit)return;canvas.dataset.orbit='1';canvas.style.cursor='grab';canvas.style.touchAction='none';
+ let drag=null;const pinch=new Map();
+ canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);pinch.set(e.pointerId,[e.clientX,e.clientY]);drag={x:e.clientX,y:e.clientY};canvas.style.cursor='grabbing';});
+ canvas.addEventListener('pointermove',e=>{
+  if(pinch.size===2&&pinch.has(e.pointerId)){const [a,b]=[...pinch.values()],before=Math.hypot(a[0]-b[0],a[1]-b[1]);pinch.set(e.pointerId,[e.clientX,e.clientY]);const [c,d]=[...pinch.values()],after=Math.hypot(c[0]-d[0],c[1]-d[1]);if(before>0)view.zoom=Math.min(4,Math.max(.4,view.zoom*after/before));draw();return;}
+  if(!drag)return;view.yaw+=(e.clientX-drag.x)*.5;view.pitch=Math.min(89,Math.max(-10,view.pitch+(e.clientY-drag.y)*.4));drag={x:e.clientX,y:e.clientY};pinch.set(e.pointerId,[e.clientX,e.clientY]);draw();});
+ const end=e=>{pinch.delete(e.pointerId);drag=null;canvas.style.cursor='grab';};
+ canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end);
+ canvas.addEventListener('wheel',e=>{e.preventDefault();view.zoom=Math.min(4,Math.max(.4,view.zoom*Math.exp(-e.deltaY*.0015)));draw();},{passive:false});
+ canvas.addEventListener('dblclick',()=>{Object.assign(view,VIEW_DEFAULT);draw();});
+ canvas.title='Drag to rotate · scroll to zoom · double-click to reset';
+}
+if(typeof map!=='undefined'&&map&&typeof map.addEventListener==='function')attachOrbitControls(map);
 function draw(){
  const bounds=map.getBoundingClientRect();if(!bounds.width)return;const ratio=devicePixelRatio||1;map.width=bounds.width*ratio;map.height=bounds.height*ratio;const ctx=map.getContext('2d');ctx.scale(ratio,ratio);const w=bounds.width,h=bounds.height,pad=40;
  const extent=60; // Fixed box scale prevents the entire map jumping as the path expands.
  const scale=Math.min(w*.32,h*.29)/extent;
- const project=([x,y,z])=>[w*.5+(x-y)*.866*scale,h*.6+(x+y)*.5*scale-z*scale];
+ const project=orbitProjection(w,h,scale);
  ctx.font='12px system-ui';ctx.lineWidth=1;
  const line=(a,b,color)=>{ctx.strokeStyle=color;ctx.beginPath();ctx.moveTo(...project(a));ctx.lineTo(...project(b));ctx.stroke();};
  const lo=-extent,hi=extent;

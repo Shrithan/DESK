@@ -5,15 +5,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "phantom-vision"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = ["numpy>=1.26,<3", "opencv-python>=4.10,<5"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10"]
 ai = ["ultralytics>=8.3,<9"]
+fetch = ["uagents==0.26.1", "uagents-core==0.4.12", "websockets>=14,<17", "httpx>=0.27,<1"]
+keys = ["pynput>=1.7,<2"]
 
 [tool.setuptools.packages.find]
-include = ["vision*", "tracking2d*", "camera*", "calibration*"]
+include = ["vision*", "tracking2d*", "camera*", "calibration*", "backend*", "shared*", "agents*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

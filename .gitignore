@@ -13,6 +13,8 @@ outputs/
 venv/
 node_modules/
 .env.*
+agents/.seed
+agent1*_data.json
 # real-camera captures and recordings may show people/rooms: keep them local
 calibration/data/captures/
 recordings/

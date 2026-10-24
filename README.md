@@ -1,4 +1,67 @@
-# Phantom vision — local webcam tracker
+# DESK — spatial tracking and Fetch.ai agents
+
+![tag:innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
+![tag:hackathon](https://img.shields.io/badge/hackathon-5F43F1)
+
+DESK tracks objects on a table and can turn can tilt into keyboard input. Its
+Fetch.ai workflow has five uAgents: an Agent Chat Protocol Coach in ASI:One,
+plus Setup, Tuner, Doctor, and Validator specialists. The agents read telemetry
+and change settings through a local control API; they do not run in the
+latency-sensitive tilt-to-keys loop.
+
+| Agent | Address | Role |
+| --- | --- | --- |
+| DESK Coach | `agent1qwtp9sexgrsgrsjqp8u39fhwyslnn7fs85lc7dxwj72zaa0jwnwujatn4vw` | ASI:One chat and orchestration |
+| Setup | `agent1qtczmqkg8vgyk34fe4rkwn96rla0jlnwj70n6pn3vm7dkrgcy9t8xdwsl3u` | Game profiles, remaps, inversion |
+| Tuner | `agent1q0lhr74qmn5f6pkgujd9qd7e56y2ns0kg5q8q5hm0w9sqhnrpeg2khg9x8y` | Telemetry-based sensitivity changes |
+| Doctor | `agent1qd69tn2vkzhdee23seeyc5jhzt7zppudgtlsscrtvlh3wxt68syng6rg055` | Tracking and calibration diagnosis |
+| Validator | `agent1qfmxzr0nq9nef4cx8e03f06tjmhp03qezqumm2syhzuf32cuclaegjymcx7` | 20-second check and conditional rollback |
+
+These addresses come from a private `agents/.seed`. Keep that file local and
+never commit it. A fresh seed produces different addresses; set
+`DESK_AGENT_SEED` or reuse your existing `agents/.seed` to preserve them.
+
+## Run the Fetch.ai workflow
+
+Use Python 3.11 or newer. On the DESK Mac, install the agent dependencies and
+start the shared simulated player plus all five agents:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[fetch,test]'
+DESK_DEMO_MODE=1 .venv/bin/python -m agents.run
+```
+
+The launcher starts the demo control server on `127.0.0.1:8766`, the four
+specialists in a Bureau on port 8000, and the standalone Coach on port 8001.
+Keep the terminal running. Connect the Coach's mailbox through the Inspector
+URL printed by the launcher, then address **DESK Coach** in ASI:One. Try “set
+up DESK for a racing game,” review and apply the plan, then “the steering is
+too twitchy.” The Tuner uses live telemetry; after a change, the Validator
+checks the next 20 seconds of simulated play and reports whether it kept or
+reverted the change. ASI:One card buttons are also accompanied by text so the
+workflow remains usable if a card is not rendered.
+
+For real tilt input, start the control and input server separately and run
+the agents without `DESK_DEMO_MODE`:
+
+```sh
+.venv/bin/python -m backend.tilt_keys.run --input ws --backend log --control
+.venv/bin/python -m agents.run
+```
+
+Send `tilt_update` messages to `ws://127.0.0.1:8766/ws/tilt`. The agent control
+API uses `/ws/control` on the same port. Use `--backend pynput` (install
+`'.[keys]'`) only when ready to send actual keyboard events. The spatial
+tracking web app remains on port 8765. Its current calibrated overhead output
+provides X/Y position and image-plane rotation; a camera-to-tilt adapter that
+produces forward/right angles is still required for live can control. The
+simulated player exercises the complete agent and settings workflow today.
+
+Run the focused integration tests with
+`.venv/bin/python -m pytest -q tests/agents tests/tilt_keys`.
+
+## Spatial tracking
 
 Current demo: `.venv/bin/python -m vision.live`, then open
 http://localhost:8765 in Safari/Chrome and press **Start webcam**. The connected

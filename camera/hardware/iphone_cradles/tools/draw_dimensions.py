@@ -1,11 +1,11 @@
 import sys, math
-sys.path.insert(0, "camera/mounts")
+sys.path.insert(0, "camera/hardware/iphone_cradles")
 import numpy as np, matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
 from matplotlib.patches import Rectangle, FancyArrowPatch, Circle, Wedge
-import generate_mounts as g  # run from repo root: python camera/mounts/tools/draw_dimensions.py camera/mounts/dimensions.png
+import generate_mounts as g  # run from repo root: python camera/hardware/iphone_cradles/tools/draw_dimensions.py camera/hardware/iphone_cradles/dimensions.png
 
 phones = g.load_phones()
 fig = plt.figure(figsize=(17, 7.6))

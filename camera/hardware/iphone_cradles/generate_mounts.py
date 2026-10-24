@@ -14,8 +14,8 @@ the 16 Pro Camera Control.
 
 Usage:
     pip install manifold3d trimesh numpy
-    python camera/mounts/generate_mounts.py            # writes STLs to camera/mounts/stl/
-    python camera/mounts/generate_mounts.py --case 1.5 # extra room for a thin case
+    python camera/hardware/iphone_cradles/generate_mounts.py            # writes STLs to stl/ next to this script
+    python camera/hardware/iphone_cradles/generate_mounts.py --case 1.5 # extra room for a thin case
 """
 
 from __future__ import annotations

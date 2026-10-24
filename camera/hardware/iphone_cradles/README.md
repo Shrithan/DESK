@@ -53,9 +53,9 @@ Things to put in the submission form:
 ## Build / test
 ```bash
 pip install manifold3d trimesh numpy pytest
-python camera/mounts/generate_mounts.py              # bare phones
-python camera/mounts/generate_mounts.py --case 1.5   # phones in ~1.5 mm cases
-cd camera/mounts && python -m pytest -q              # fit, open camera corner, edge-nut fit + blind hole
+python camera/hardware/iphone_cradles/generate_mounts.py              # bare phones
+python camera/hardware/iphone_cradles/generate_mounts.py --case 1.5   # phones in ~1.5 mm cases
+cd camera/hardware/iphone_cradles && python -m pytest -q              # fit, open camera corner, edge-nut fit + blind hole
 ```
 All the dimensions are in `phone_models.json` and at the top of `generate_mounts.py`.
 

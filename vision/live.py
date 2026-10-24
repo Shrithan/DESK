@@ -242,7 +242,14 @@ class LiveSession:
                     # Also reserve uncertain/temporarily lost tracks' last regions.
                     if any(overlap(d['bbox'],m['bbox'])>.2 and (m['observation']['tracking_state']!='lost' or time.monotonic()-m['support']<2) for m in self.objects.values()):
                         continue
-                    prior=next((q for q in self.pending_objects if self._compatible(q['d']['label'],d['label']) and overlap(q['d']['bbox'],d['bbox'])>.35),None)
+                    def near(q):
+                        # Same candidate across two detections: overlapping, or (for a quick first move)
+                        # its centre within ~1.5 box sizes of the previous one.
+                        a,c=q['d']['bbox'],d['bbox']
+                        size=max(a[2]-a[0],a[3]-a[1],c[2]-c[0],c[3]-c[1])
+                        dist=np.hypot((a[0]+a[2]-c[0]-c[2])/2,(a[1]+a[3]-c[1]-c[3])/2)
+                        return overlap(a,c)>.35 or dist<=1.5*size
+                    prior=next((q for q in self.pending_objects if self._compatible(q['d']['label'],d['label']) and near(q)),None)
                     hits=prior['hits']+1 if prior else 1
                     if prior:
                         self.pending_objects.remove(prior)

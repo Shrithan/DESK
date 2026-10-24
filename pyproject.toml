@@ -6,13 +6,17 @@ build-backend = "setuptools.build_meta"
 name = "phantom-vision"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.26,<3", "opencv-python-headless>=4.10,<5"]
+dependencies = ["numpy>=1.26,<3", "opencv-python>=4.10,<5"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10"]
+ai = ["ultralytics>=8.3,<9"]
 
 [tool.setuptools.packages.find]
 include = ["vision*", "tracking2d*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.setuptools.package-data]
+vision = ["web/*.html", "web/*.css", "web/*.js"]

@@ -16,8 +16,12 @@ objects selected for that camera. Forward/backward optical flow and affine RANSA
 retain local feature IDs; mask propagation assumes approximate planar/rigid image
 motion. Rotation, deformation, large occlusion, lighting shifts and repeated texture
 can break this assumption. There is no probabilistic confidence score.
-Lost targets emit no features or box and require explicit reselection. This avoids
-automatic reacquisition onto a nearby target, but cannot guarantee no identity swaps.
+Lost targets emit no features or box while searching. Recovery matches immutable
+selection-time SIFT descriptors, requires mutual/ratio checks and a RANSAC homography
+with spatially distributed inliers, and confirms consistent placement in two frames.
+Object ID persists; newly seeded features get new IDs so geometry cannot mistake
+them for old anchors. Similar or identical objects can still cause ambiguity;
+this does not guarantee identity across every disappearance.
 No replenishment means long tracks eventually exhaust features.
 `deselect(camera_id, object_id)` removes the target. Multiple selections are supported.
 
@@ -62,3 +66,54 @@ No shared/contracts files existed on inspection; Agent 3 must approve/finalize s
 
 Do not average changing visible surface points and call it a stable object center.
 Metric scale must come from workspace calibration. No sponsor code runs in vision.
+
+## Recovery validation — 2026-10-24
+
+Four tests pass, including return at a new location after a blank frame, rejection
+of different texture and duplicate identical candidates, and preservation of object
+ID with new feature IDs after recovery. On the user-provided IMG_4448.mp4, with a
+manually selected initial can region at 700x1244 resolution: tracking drops at
+1.983 seconds, resumes at 2.633 seconds and remains active through frame 440.
+402/441 frames report tracked; this is state coverage, not accuracy. Visual
+inspection shows the propagated box shrinks near the end, so mask/box accuracy
+remains limited by affine propagation. No 3D position is inferred. Local video
+outputs are ignored by Git.
+
+## Single-camera live adapter
+
+`python -m vision.live` serves a loopback-only browser interface and local JPEG
+analysis API. The browser uses an explicitly permitted macOS camera device,
+including USB Continuity Camera. It submits one frame at a time, caps resolution,
+and does not record frames. A paused, numbered analysis frame anchors each manual
+rectangle selection; stale selection IDs are rejected. Selection creates one target
+per local session. Camera dimension changes clear selection. Unknown origins and
+non-loopback Host values are rejected. The server keeps only latest frame and
+tracker state in memory, is single-user, and is not a deployable public backend.
+
+`POST /api/frame` takes JPEG bytes and returns the frame ID, observation and
+image motion. `/api/select` takes `{frame_id,bbox:[x,y,x2,y2]}`; `/api/clear` and
+`/api/reset` take `{}`. Timestamps use server receipt Unix milliseconds. Motion
+center is the approximate propagated region center, not a physical anchor. Image
+speed uses median displacement of surviving shared feature IDs and server receipt
+intervals; it is null on recovery. Region drift and moving camera effects remain.
+No metric depth is fabricated. HTTP routes are an Agent 2 local test adapter only,
+not a replacement or silent edit of Agent 3's future shared service.
+
+## Automatic live acquisition
+
+Live mode defaults to class-free motion acquisition using MOG2 background
+subtraction. It warms up for 15 frames, rejects very large foreground changes
+and strong phase-correlated camera translation, cleans the foreground mask,
+and requires a spatially consistent candidate in three frames. The largest
+viable connected region seeds the existing feature tracker without user clicks.
+If a region lacks features, acquisition continues searching. After acquisition,
+loss triggers the existing reference-appearance recovery; it does not select
+another moving region with a new ID. Clear/find-another explicitly releases
+the target. `POST /api/auto` with `{enabled:true|false}` switches automatic mode.
+
+This is a moving-region detector, not an arbitrary-object segmentation model.
+Touching hand/object regions can merge; stationary objects do not trigger after
+background learning. Camera motion, shadows, lighting changes, ghost regions at
+vacated locations, and reflections can create false proposals. The camera must
+remain still. The motion guard is heuristic, not full camera-motion compensation.
+No physical live-camera automatic-acquisition accuracy is claimed.

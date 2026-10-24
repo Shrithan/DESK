@@ -1,20 +1,93 @@
-# Phantom vision — Agent 2
+# Phantom vision — local webcam tracker
 
-CPU markerless tracking prototype. This branch contains the vision workstream;
-camera ingestion, calibration, geometry, backend, and frontend are upstream/downstream work.
+Current demo: `.venv/bin/python -m vision.live`, then open
+http://localhost:8765 in Safari/Chrome and press **Start webcam**. The connected
+USB webcam is preferred automatically. Keep it still, let the scene settle, then
+move an object to see a green tracking region, details and motion trail.
+No iPhone or OBS setup is needed for this mode. **Find another object** resets
+the target. This is real live 2D tracking, with automatic loss/recovery.
+
+The multi-camera backend remains available for later work; the current default
+page is intentionally one webcam. Earlier dual-camera setup below is historical.
+
+Agent 2's selection, detection, tracking, correspondence and local demonstration
+adapter. No shared backend or calibration contracts are replaced by this prototype.
+
+## Two live cameras and a separate object map
 
 ```sh
 python3.12 -m venv .venv
-.venv/bin/python -m pip install -e '.[test]'
-.venv/bin/python -m pytest -q
-.venv/bin/python -m vision.demo --preview /tmp/phantom-preview.jpg
+.venv/bin/python -m pip install -e '.[ai,test]'
+.venv/bin/python -m vision.prepare_model
+.venv/bin/python -m vision.live
 ```
 
-Python 3.10+ with compatible NumPy/OpenCV wheels works on other platforms.
-The demo emits real image-derived 2D feature motion from synthetic RGB frames;
-it does not produce metric XYZ or claim physical-camera validation.
+Open **http://localhost:8765** in Safari/Chrome on the Mac. Find cameras, assign one
+physical camera as **front** and a distinct phone as **top**, then connect each.
+The overhead phone should point straight down. Previews are clean native video;
+the separate map shows the overhead target's silhouette/path. Keep cameras still,
+let the background settle, then move an object. No manual box is required.
 
-Recorded input: `.venv/bin/python -m vision.demo --video /path/input.mp4 --click 110 100 --mask /path/first-mask.png`.
-The mask is optional; without it, click selection uses restricted color flood-fill.
-Recordings and weights are excluded from Git. See [vision integration](docs/vision.md)
-and [readiness/status](docs/status/AGENT-2.md).
+For Apple Continuity Camera, connect with data cables, enable Continuity Camera,
+trust the Mac if prompted, then lock and mount each phone. Both must be exposed
+as separate camera sources; a second cable does not guarantee this. Desk View is
+excluded because it is not a second physical camera. See Apple's setup guide:
+https://support.apple.com/en-us/102546
+
+If only one iPhone appears, see [camera app alternatives](docs/camera-input-options.md).
+External apps often expose their feeds only inside OBS or as one composite webcam;
+a transport adapter is required before those sources can enter this browser UI.
+
+## Detection and focus
+
+Default: local YOLOE-26 small instance segmentation with a saved 12-category desk
+profile, periodic mask correction, sparse optical flow and reference-based recovery.
+AI mode waits for two consistent current-frame object masks and never silently
+falls back to arbitrary motion regions. Motion-only mode is an explicit CLI option.
+The model can misclassify objects and does not guarantee arbitrary-object tracking.
+It is configured for: can, bottle, cup, box, phone, book, pen, ball, mouse, keyboard,
+scissors and remote. One target per camera; identities are independent until matched.
+
+`vision.prepare_model` downloads official public model assets into ignored
+`outputs/models`, including a one-time ~242 MiB text encoder and ~9 MiB source
+weights. The saved profile is kept in ignored outputs/models. The optional Ultralytics code and model
+are distributed under upstream AGPL-3.0 terms (see https://www.ultralytics.com/license).
+Runtime inference is local; frames/audio are not recorded or uploaded. Microphones
+are never requested. CPU/MPS selection is automatic; `--device cpu` forces CPU.
+Offline/no-model mode: `.venv/bin/python -m vision.live --detector motion`.
+
+Each camera requests continuous autofocus/exposure only if its capabilities expose
+those controls. Manual focus is available only when supported. Otherwise focus is
+managed by the iPhone; the UI says so. The detail score is relative Laplacian image
+variance, not a calibrated measure of focus. It cannot fix motion blur or poor light.
+
+## Mapping limits
+
+The default overhead map uses normalized image coordinates with unknown height.
+It is **not metric 3D**, even if the overhead phone is perfectly vertical.
+
+The 3D tab accepts externally measured intrinsics/distortion and world-to-camera
+poses. See [calibration format and geometry limits](docs/live-dual.md). It matches
+surface feature descriptors across views, rejects bad reprojections/negative depth,
+and retains a shared feature anchor. Independent box centers are never triangulated.
+It leaves XYZ unresolved when calibration, shared details or close samples are missing.
+Browser sample times do not verify camera exposure synchronization; any reconstructed
+point is labelled as an estimate with unverified timing.
+
+## Verification and recorded fixtures
+
+```sh
+.venv/bin/python -m pytest -q
+.venv/bin/python -m vision.demo --preview /tmp/phantom-preview.jpg
+.venv/bin/python -m vision.demo --video /path/input.mp4 --click 110 100 --mask /path/first-mask.png
+```
+
+Python 3.10+ with compatible OpenCV/NumPy wheels is supported. The recorded runner
+uses selection rather than the live AI pipeline. The synthetic demo produces
+image-derived 2D observations and never pretends to validate physical XYZ.
+
+The live server is loopback-only, single-user and keeps latest frames in memory.
+Analysis uses at most 800 pixels on the longest edge, one pending request per
+camera, up to 24 analysis updates/second, with lower-rate segmentation. Native
+video does not wait for inference. These are scheduling limits, not performance
+promises. See [vision integration](docs/vision.md) and [status](docs/status/AGENT-2.md).

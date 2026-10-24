@@ -26,6 +26,7 @@ from vision.objects import ObjectSegmenter, DEFAULT_WEIGHTS, overlap, foreground
 LOG = logging.getLogger("phantom.live")
 WEB = Path(__file__).with_name("web")
 MAX_BODY = 2_000_000
+SYNC_DETECTION = False  # --sync-detection restores the old in-request detection
 REACQUIRE_S = 5.0  # a lost object keeps its ID if re-detected near its predicted position within this time
 
 
@@ -46,6 +47,7 @@ class LiveSession:
         self._job = None          # (thread, frame_id) of the running detection
         self._job_result = None   # (detections, frame_id, centers_at_submit)
         self._job_lock = threading.Lock()
+        self.detector_error = None
         self.tuning=TrackingTuning.responsive() if engine is not None else TrackingTuning()
         self.lock = threading.Lock()
         self.table_plane = None  # vision.table_plane.TablePlane for a calibrated overhead camera
@@ -293,7 +295,11 @@ class LiveSession:
         def run():
             try:
                 detections = self.engine.detect(snapshot)
-            except Exception:  # noqa: BLE001 - a failed inference just means no fresh detections this round
+            except Exception as exc:  # noqa: BLE001
+                # Never fail silently: report it and fall back to in-request detection, which worked before.
+                logging.getLogger('vision.live').exception('background detection failed on %s; falling back to synchronous detection', self.camera_id)
+                self.detector_error = f'{type(exc).__name__}: {exc}'
+                self.async_detection = False
                 detections = []
             with self._job_lock:
                 self._job_result = (detections, frame_id, boxes)
@@ -501,7 +507,8 @@ class LiveSession:
                     detector=f'{getattr(self.engine,"model_name","YOLOE")} segmentation + optical flow' if self.engine else 'motion fallback',
                     detections=ObjectSegmenter.public(self.detections) if self.engine else [],
                     focus_sharpness=self.focus_score, capture_sample_ms=self.capture_sample_ms,
-                    table_plane=self.table_plane.describe() if self.table_plane is not None else None)
+                    table_plane=self.table_plane.describe() if self.table_plane is not None else None,
+                    detector_error=self.detector_error, async_detection=self.async_detection)
 
     def table_xy(self, oid):
         """Metric X/Y (m) of a tracked object's mask centroid on the calibrated table plane, or None."""
@@ -520,7 +527,7 @@ class LiveServer(ThreadingHTTPServer):
     daemon_threads = True
     def __init__(self, address, engine=None):
         super().__init__(address, Handler)
-        self.sessions = {name:LiveSession(name,engine,async_detection=True) for name in ('front','top')}
+        self.sessions = {name:LiveSession(name,engine,async_detection=not SYNC_DETECTION) for name in ('front','top')}
         self.session = self.sessions['front']
         from vision.stereo import WorkspaceMapper
         self.mapper = WorkspaceMapper()
@@ -710,6 +717,7 @@ def main():
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--detector',choices=['yolo','motion'],default='yolo')
     parser.add_argument('--device',choices=['auto','cpu','mps'],default='auto')
+    parser.add_argument('--sync-detection',action='store_true',help='run the model inside each frame request (old behaviour)')
     parser.add_argument('--model-size',choices=['s','m','l','x'],default='x',
                         help='YOLOE size: s is several times faster than x (run `python -m vision.prepare_model --size s` once)')
     parser.add_argument('--calibration',help='calibration JSON (calibration/data/rig_calibration.json or stereo format)')
@@ -726,6 +734,10 @@ def main():
             print(f'Object segmentation ready ({engine.device}); frames stay local.',flush=True)
         except (ImportError,FileNotFoundError,RuntimeError) as exc:
             print(f'Segmentation unavailable: {exc}. Using explicitly labelled motion fallback.',flush=True)
+    global SYNC_DETECTION
+    SYNC_DETECTION = args.sync_detection
+    if engine is None:
+        print('NOTE: no segmentation model loaded: only MOVING regions are tracked (motion fallback).',flush=True)
     server = LiveServer(('127.0.0.1', args.port),engine)
     if args.calibration:
         configure_calibration(server,json.loads(Path(args.calibration).read_text()),args.top_camera,args.front_camera,args.plane_height_m)

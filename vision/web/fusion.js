@@ -291,7 +291,7 @@ async function pump(role,g){
   trackVelocities(c,result,sample);c.result=result;c.sample=c.acceptedSample=sample;c.completed=(c.completed||0)+1;
   fuse();overlay(role);$('model-info').textContent=result.detector;
   const now=performance.now();if(now-analysisWindow>=1000){$('stats').textContent=`Tracking updates/sec: side ${((cameras.front.completed||0)*1000/(now-analysisWindow)).toFixed(1)} · overhead ${((cameras.top.completed||0)*1000/(now-analysisWindow)).toFixed(1)} · independent fresh-frame processing; sensor timing unverified`;analysisWindow=now;cameras.front.completed=cameras.top.completed=0;}
-  error();
+  error(result.detector_error?`Detector error (${role}): ${result.detector_error}. Fell back to in-request detection; see Terminal.`:'');
  })();
  try{await c.inFlight;}catch(err){if(g===generation){error(err.message);c.result=null;c.acceptedSample=null;for(const p of pairs){p.position=null;p.prediction=null;p.visual=null;p.points.push(null);}clearOverlay(role);draw();}}finally{c.inFlight=null;}
  if(running&&g===generation)c.timer=setTimeout(()=>pump(role,g),0);

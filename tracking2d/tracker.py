@@ -47,7 +47,9 @@ class Target:
 
 
 class Tracker:
-    def __init__(self, tuning=None):
+    def __init__(self, tuning=None, *, normalize_illumination=False):
+        from tracking2d.illumination import IlluminationNormalizer
+        self.illumination=IlluminationNormalizer() if normalize_illumination else None
         self.tuning=tuning or TrackingTuning()
         self.targets = {}
         self.last_timestamp = {}
@@ -61,6 +63,7 @@ class Tracker:
         leak onto similar backgrounds. Caller must show mask for confirmation.
         """
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        if self.illumination is not None:gray=self.illumination.apply(gray)
         h, w = gray.shape
         x, y = int(pixel_x), int(pixel_y)
         if not (0 <= x < w and 0 <= y < h):
@@ -96,8 +99,9 @@ class Tracker:
         self.last_timestamp.pop((camera_id, object_id), None)
         return self.targets.pop((camera_id, object_id), None) is not None
 
-    def update(self, frame, camera_id, timestamp_ms, calibration_version, *, recover_lost=True):
+    def update(self, frame, camera_id, timestamp_ms, calibration_version, *, recover_lost=True, recover_ids=()):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        if self.illumination is not None:gray=self.illumination.apply(gray)
         observations = []
         for (cam, oid), target in self.targets.items():
             if cam != camera_id:
@@ -110,7 +114,7 @@ class Tracker:
             if target.state == 'lost':
                 # Full-frame SIFT recovery can cost tens of ms on a 640+ px frame. Only when it was
                 # actually slow, skip it for ~3x its cost so it cannot starve tracking of other objects.
-                if recover_lost and timestamp_ms >= target.last_recover_ms:
+                if (recover_lost or oid in recover_ids) and timestamp_ms >= target.last_recover_ms:
                     started = time.perf_counter()
                     self._recover(target, gray)
                     cost_ms = (time.perf_counter() - started) * 1000
@@ -123,7 +127,8 @@ class Tracker:
                 observations.append(self._observation(target,cam,timestamp_ms,calibration_version))
                 continue
             valid = None
-            dt = max(1, timestamp_ms - (target.last_update_ms or timestamp_ms - 33))
+            # Flow anchors remain on the last measured frame through a dropout.
+            dt = max(1, timestamp_ms - target.last_good_ms)
             if gray.shape == target.gray.shape and gap <= self.tuning.max_gap_ms:
                 nxt, status = self._flow(target, gray, dt)
                 if nxt is not None:
@@ -134,8 +139,6 @@ class Tracker:
                         valid &= np.linalg.norm(back-target.points, axis=2).ravel() < self.tuning.flow_error_px
             if valid is None or valid.sum() < max(6, len(target.points)*self.tuning.surviving_fraction):
                 target.state = 'predicted' if gap <= self.tuning.grace_ms else 'lost'
-                if target.state == 'predicted':
-                    self._coast(target, gray, dt)
             else:
                 old = target.points[valid]
                 new = nxt[valid]
@@ -143,8 +146,6 @@ class Tracker:
                                                                ransacReprojThreshold=self.tuning.ransac_error_px)
                 if transform is None or inliers.sum() < max(6, len(old)*self.tuning.inlier_fraction):
                     target.state = 'predicted' if gap <= self.tuning.grace_ms else 'lost'
-                    if target.state == 'predicted':
-                        self._coast(target, gray, dt)
                 else:
                     keep = inliers.ravel().astype(bool)
                     mask = cv2.warpAffine(target.mask, transform, (gray.shape[1], gray.shape[0]),
@@ -207,18 +208,6 @@ class Tracker:
         target.seed_count += 1
         target.ids = list(target.ids) + [f'{target.object_id}:s{target.seed_count}:f_{i}' for i in range(len(new))]
         target.points = np.concatenate([target.points, new.astype(np.float32)])
-
-    def _coast(self, target, gray, dt):
-        """While flow is unreliable, move the mask/points along the last velocity so the box keeps up."""
-        if target.velocity is None:
-            return
-        shift = np.clip(target.velocity * min(dt, 120), -120, 120)
-        if np.hypot(*shift) < .5:
-            return
-        M = np.float32([[1, 0, shift[0]], [0, 1, shift[1]]])
-        target.mask = cv2.warpAffine(target.mask, M, (gray.shape[1], gray.shape[0]), flags=cv2.INTER_NEAREST)
-        target.points = target.points + shift.astype(np.float32).reshape(1, 1, 2)
-        target.gray = gray
 
     def _recover(self, target, gray):
         """Match immutable selected appearance; require two consistent detections.

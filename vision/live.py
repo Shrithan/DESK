@@ -17,17 +17,23 @@ import numpy as np
 
 from tracking2d import Tracker
 from tracking2d.tracker import TrackingTuning
+from vision.commands import parse_command
+from vision.speech_input import CartesiaSpeechInput
+from vision.keyboard import KeyboardOutput, request_accessibility_permission
+from vision.usb_guard import USBPhoneGuard
 from vision.voice import CartesiaVoice, VoiceError
+from tilt_joystick.features import mask_features
 from vision.skeleton import can_skeleton
 from vision.motion import MotionSelector
 from vision.orientation import rotation_delta, surface_patch, surface_rotation
-from vision.objects import ObjectSegmenter, DEFAULT_WEIGHTS, overlap, foreground_containers, appearance_signature, appearance_similarity
+from vision.objects import ObjectSegmenter, DEFAULT_WEIGHTS, overlap, foreground_containers, appearance_signature, appearance_similarity, align_detection
 
 LOG = logging.getLogger("phantom.live")
 WEB = Path(__file__).with_name("web")
 MAX_BODY = 2_000_000
 SYNC_DETECTION = False  # --sync-detection restores the old in-request detection
 REACQUIRE_S = 5.0  # a lost object keeps its ID if re-detected near its predicted position within this time
+REENTRY_S = 120.0  # keep enrolled appearance available across an exit, independent of position
 
 
 def colour_similarity(a, b):
@@ -39,7 +45,7 @@ def colour_similarity(a, b):
 
 class LiveSession:
     """One camera with independent object identities and sequential frame operations."""
-    def __init__(self, camera_id='front', engine=None, async_detection=False):
+    def __init__(self, camera_id='front', engine=None, async_detection=False, temporal_model=None):
         self.camera_id, self.engine = camera_id, engine
         # async_detection: run the segmentation model on a background thread so per-frame optical-flow
         # tracking (~3 ms) never waits for it. Off by default (deterministic tests); the server turns it on.
@@ -48,13 +54,16 @@ class LiveSession:
         self._job_result = None   # (detections, frame_id, centers_at_submit)
         self._job_lock = threading.Lock()
         self.detector_error = None
+        self.temporal_model = temporal_model
         self.tuning=TrackingTuning.responsive() if engine is not None else TrackingTuning()
         self.lock = threading.Lock()
         self.table_plane = None  # vision.table_plane.TablePlane for a calibrated overhead camera
         self.reset()
 
     def reset(self):
-        self.tracker = Tracker(self.tuning)
+        self.generation = getattr(self, 'generation', 0) + 1
+        self.temporal = self.temporal_model.camera(self.engine) if self.temporal_model else None
+        self.tracker = Tracker(self.tuning,normalize_illumination=True)
         self.frame = None
         self.frame_id = 0
         self.observation = None
@@ -80,6 +89,7 @@ class LiveSession:
         self.last_semantic_support = 0
         self.objects = {}
         self.pending_objects = []
+        self.reentry_candidates = {}
 
     def timestamp(self):
         # Receipt time in server Unix epoch milliseconds, NOT camera capture time.
@@ -103,11 +113,11 @@ class LiveSession:
         healthy=bool(self.objects) and all(m['observation']['tracking_state']=='tracked' for m in self.objects.values())
         moving=any(m.get('velocity') is not None and np.linalg.norm(m['velocity'])>150 for m in self.objects.values())
         interval=.35 if self.workspace_multi and healthy and not moving else .12
+        if self.temporal:
+            interval = .05  # single worker samples latest frames; never enqueue a backlog
         due = self.engine is not None and time.monotonic()-self.last_detection > interval
         if self.async_detection:
             fresh_detection = self._collect_detection(frame)
-            if due and self._job is None:
-                self._submit_detection(frame)
         else:
             fresh_detection = due
             if fresh_detection:
@@ -115,7 +125,9 @@ class LiveSession:
                 self.last_detection = time.monotonic()
         resized = self.frame is not None and frame.shape != self.frame.shape
         if resized:
-            self.tracker = Tracker(self.tuning)
+            self.generation += 1
+            self.temporal = self.temporal_model.camera(self.engine) if self.temporal_model else None
+            self.tracker = Tracker(self.tuning,normalize_illumination=True)
             self.observation = self.origin = self.previous = None
             self.detector = MotionSelector()
             self.selection_source = None
@@ -126,7 +138,8 @@ class LiveSession:
         self.frame = frame
         self.frame_id += 1
         observations = self.tracker.update(frame, self.camera_id, self.timestamp(), "uncalibrated-live",
-                                           recover_lost=not ((self.single_target or self.workspace_multi) and self.engine is not None))
+                                           recover_lost=not ((self.single_target or self.workspace_multi) and self.engine is not None),
+                                           recover_ids={oid for oid,m in self.objects.items() if m.get('source')=='registered_region'})
         if resized:
             self.objects = {}
             self.pending_objects = []
@@ -146,8 +159,34 @@ class LiveSession:
                 minimum=.0015 if self.overhead else .006
                 detections=[d for d in detections if np.count_nonzero(d['mask'])/(h*w)>=minimum]
             signatures={i:appearance_signature(frame,d['mask']) for i,d in enumerate(detections)} if self.workspace_multi else {}
+            # From above a can lid flickers between disk/cup/bottle. Preserve
+            # identity only for one spatially and visually supported local match;
+            # do not declare every disk equivalent to every container.
+            if self.overhead:
+                for i,d in enumerate(detections):
+                    if d.get('track_id') is not None:
+                        continue
+                    signature=signatures.get(i) if signatures else appearance_signature(frame,d['mask'])
+                    candidates=[]
+                    for oid,meta in self.objects.items():
+                        labels={d['label'],meta['label']}
+                        if 'disk' not in labels or not labels.issubset({'disk','can','bottle','cup'}):
+                            continue
+                        box=(by_id.get(oid) or {}).get('bbox_xyxy') or meta['bbox']
+                        similarity=max(appearance_similarity(meta.get('appearance'),signature),
+                                       appearance_similarity(meta.get('reference_appearance'),signature))
+                        if overlap(d['bbox'],box)>.45 and similarity>.6:
+                            candidates.append(oid)
+                    if len(candidates)==1:
+                        oid=candidates[0]
+                        detections[i]=dict(d,semantic_label=d['label'],label=self.objects[oid]['label'],track_id=oid)
             edges = []
             reserved=set()
+            reentries, waiting = self._reentries(frame,detections,by_id,signatures)
+            reserved.update(waiting)
+            for i,oid in reentries.items():
+                d=detections[i]
+                detections[i]=dict(d,track_id=oid,semantic_label=d.get('semantic_label',d['label']),label=self.objects[oid]['label'])
 
             def unique_match(oid,i):
                 label=self.objects[oid]['label']
@@ -162,11 +201,23 @@ class LiveSession:
                     continue
                 predicted = self._predicted_center(meta)
                 for i,d in enumerate(detections):
+                    if d.get('track_id') is not None and d['track_id'] != oid:
+                        continue
+                    if reentries.get(i)==oid:
+                        edges.append((.98,oid,i));reserved.add(i)
+                        continue
                     score = overlap(d['bbox'],obs['bbox_xyxy'] or meta['bbox'])
                     if self._compatible(d['label'],meta['label']) and unique_match(oid,i):
-                        # Exactly one track and one detection of this kind: they are the same object,
-                        # however far it moved (flow can lock onto the table during very fast moves).
-                        score=max(score,.5)
+                        # A unique class is not identity proof: require similar appearance and a
+                        # bounded displacement before recovering a fast-moving target.
+                        old=meta['bbox'];new=d['bbox']
+                        old_area=max(1,(old[2]-old[0])*(old[3]-old[1]))
+                        ratio=(new[2]-new[0])*(new[3]-new[1])/old_area
+                        distance=np.hypot((old[0]+old[2]-new[0]-new[2])/2,(old[1]+old[3]-new[1]-new[3])/2)
+                        signature=signatures.get(i) if signatures else appearance_signature(frame,d['mask'])
+                        colour=max(colour_similarity(meta.get('appearance'),signature),colour_similarity(meta.get('reference_appearance'),signature))
+                        if .3<=ratio<=3.3 and distance<=max(old[2]-old[0],old[3]-old[1])*2.5 and colour>=.65:
+                            score=max(score,.5)
                     if predicted is not None and self._compatible(d['label'],meta['label']):
                         # Motion-predicted gating: bridges fast moves where boxes no longer overlap.
                         gate = self._gate_score(meta, predicted, d, signatures.get(i) if signatures else appearance_signature(frame,d['mask']), w, h)
@@ -211,7 +262,7 @@ class LiveSession:
                 if target.state in ('predicted','lost'):
                     target.points=np.empty((0,1,2),dtype=np.float32); target.ids=[]
                 # Class flicker is metadata, not a change of the track's identity/name.
-                meta['detector_label']=d['label']; meta['support']=time.monotonic()
+                meta['detector_label']=d.get('semantic_label',d['label']); meta['support']=time.monotonic()
                 if self.workspace_multi:meta['appearance']=signatures[i]
                 target.mask=d['mask'].copy()
                 keep=[]
@@ -230,11 +281,18 @@ class LiveSession:
                     target.points=np.concatenate([target.points,new])
                 target.state='tracked' if len(target.points)>=6 or self.overhead and meta['label']=='disk' else 'lost'
                 if target.state=='tracked':
-                    target.gray=gray; target.last_good_ms=self.last_timestamp
+                    target.gray=self.tracker.illumination.apply(gray) if self.tracker.illumination else gray
+                    target.last_good_ms=self.last_timestamp
+                    target.last_update_ms=self.last_timestamp
+                    # The correction is a new measured anchor; old coast velocity
+                    # must not immediately fling it away again on the next frame.
+                    target.velocity=None
                 by_id[oid]=self.tracker._observation(target,self.camera_id,self.last_timestamp,'uncalibrated-live')
             pending=[]
             if self.auto_enabled:
                 for i,d in enumerate(detections):
+                    if d.get('track_id') is not None:
+                        continue  # temporal masks only correct an existing enrolled identity
                     if self.single_target and self.objects:
                         break
                     if i in used_detections or i in reserved or d['score'] < (.24 if self.single_target else .3):
@@ -280,7 +338,7 @@ class LiveSession:
             obs=by_id.get(oid)
             if obs is None:
                 continue
-            if self.engine is not None and obs['tracking_state'] in ('tracked','predicted') and time.monotonic()-meta['support']>1.8:
+            if self.engine is not None and meta.get('source')!='registered_region' and obs['tracking_state'] in ('tracked','predicted') and time.monotonic()-meta['support']>1.8:
                 target=self.tracker.targets[(self.camera_id,oid)]; target.state='lost'
                 obs=self.tracker._observation(target,self.camera_id,self.last_timestamp,'uncalibrated-live')
             if obs['bbox_xyxy'] is not None:
@@ -296,6 +354,9 @@ class LiveSession:
                     meta['last_center']=(c,now)
             meta['observation']=obs
         self._primary()
+        if self.async_detection and due and self._job is None:
+            # Seed from this frame's updated masks, never the preceding frame.
+            self._submit_detection(frame)
         response = self.result()
         response['processing_ms'] = round((time.perf_counter()-started)*1000, 2)
         response['selection_reset'] = resized
@@ -306,40 +367,58 @@ class LiveSession:
                 for oid, m in self.objects.items() if m.get('bbox') is not None}
 
     def _submit_detection(self, frame):
-        snapshot, frame_id = frame.copy(), self.frame_id + 1
+        snapshot, frame_id = frame.copy(), self.frame_id
+        generation, temporal = self.generation, self.temporal
+        submitted_at = time.monotonic()
+        seeds = [dict(track_id=oid, label=meta['label'], mask=target.mask.copy(), tracked=target.state=='tracked')
+                 for oid, meta in self.objects.items()
+                 if (target := self.tracker.targets.get((self.camera_id, oid))) is not None
+                 and np.count_nonzero(target.mask) > 48]
         boxes = None  # looked up from each object's box history at collect time
         self.last_detection = time.monotonic()
 
         def run():
             try:
-                detections = self.engine.detect(snapshot)
+                detections = temporal.detect(snapshot, seeds) if temporal else self.engine.detect(snapshot)
             except Exception as exc:  # noqa: BLE001
-                # Never fail silently: report it and fall back to in-request detection, which worked before.
-                logging.getLogger('vision.live').exception('background detection failed on %s; falling back to synchronous detection', self.camera_id)
-                self.detector_error = f'{type(exc).__name__}: {exc}'
-                self.async_detection = False
-                detections = []
+                if temporal:
+                    logging.getLogger('vision.live').exception('EdgeTAM correction failed on %s; keeping asynchronous YOLOE', self.camera_id)
+                    self.detector_error = f'EdgeTAM: {type(exc).__name__}: {exc}'
+                    if generation == self.generation:
+                        self.temporal = None
+                    detections = []
+                else:
+                    # Preserve the existing fallback for a failed discovery model.
+                    logging.getLogger('vision.live').exception('background detection failed on %s; falling back to synchronous detection', self.camera_id)
+                    self.detector_error = f'{type(exc).__name__}: {exc}'
+                    self.async_detection = False
+                    detections = []
             with self._job_lock:
-                self._job_result = (detections, frame_id, boxes)
+                self._job_result = (detections, frame_id, boxes, generation, submitted_at, snapshot)
                 self._job = None
         with self._job_lock:
             self._job = threading.Thread(target=run, daemon=True, name=f'detect-{self.camera_id}')
             self._job.start()
 
     def _collect_detection(self, frame):
-        """Take a finished background detection, shifted to where each object is *now*.
+        """Align delayed model masks to observed current pixels, rejecting occlusions.
 
-        The model saw an older frame; re-seeding a track with that stale mask would drag it
-        backwards (the box 'falls behind' a fast object). Each detection is matched to the
-        object it covered at submit time and translated by that object's motion since.
+        Historical results without source frames retain the legacy translation
+        path for callers that inject detection fixtures.
         """
         with self._job_lock:
             result, self._job_result = self._job_result, None
         if result is None:
             return False
-        detections, job_frame, _ = result
+        detections, job_frame, *_ = result
+        if len(result) >= 5 and (result[3] != self.generation or time.monotonic()-result[4] > .6):
+            return False
         if self.frame is not None and frame.shape != self.frame.shape:
             return False
+        if len(result)>=6:
+            self.detections=[aligned for d in detections
+                             if (aligned:=align_detection(d,result[5],frame)) is not None]
+            return True
         now = self._centers()
         # Each object's box on the frame the model saw (or its first box, if it was created later).
         then = {}
@@ -352,6 +431,8 @@ class LiveSession:
         for d in detections:
             best, best_overlap = None, .2
             for oid, box in then.items():
+                if d.get('track_id') is not None and d['track_id'] != oid:
+                    continue
                 o = overlap(d['bbox'], box)
                 if oid in now and o > best_overlap:
                     best, best_overlap = oid, o
@@ -375,6 +456,70 @@ class LiveSession:
         dt=min(time.monotonic()-last[1],1.0)
         v=meta.get('velocity')
         return last[0]+(v*dt if v is not None else 0)
+
+    def _reentries(self, frame, detections, observations, signatures):
+        """Two consistent appearance matches recover an exited object's original ID.
+
+        Position gates are useful during motion, but an object can re-enter at
+        any edge. Never steal a detection already covering a visible neighbour.
+        Ambiguous lookalikes wait; class names alone are insufficient evidence.
+        """
+        previous=self.reentry_candidates;pending={};confirmed={};reserved=set()
+        gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+        for i,d in enumerate(detections):
+            if d.get('track_id') is not None:
+                continue
+            if any(o.get('tracking_state')=='tracked' and o.get('bbox_xyxy') and overlap(d['bbox'],o['bbox_xyxy'])>.2
+                   for o in observations.values()):
+                continue
+            signature=signatures.get(i) if signatures else appearance_signature(frame,d['mask'])
+            choices=[]
+            keys=descriptors=None
+            for oid,meta in self.objects.items():
+                obs=observations.get(oid)
+                if not obs or obs['tracking_state']!='lost' or time.monotonic()-meta['support']>REENTRY_S:
+                    continue
+                compatible=self._compatible(d['label'],meta['label'])
+                lid=self.overhead and {d['label'],meta['label']}.issubset({'disk','can','cup','bottle'})
+                if not (compatible or lid):
+                    continue
+                old=meta['bbox'];new=d['bbox'];ratio=(new[2]-new[0])*(new[3]-new[1])/max(1,(old[2]-old[0])*(old[3]-old[1]))
+                if not .3<=ratio<=3.3:
+                    continue
+                similarity=max(appearance_similarity(meta.get('appearance'),signature),appearance_similarity(meta.get('reference_appearance'),signature))
+                if similarity<.65:
+                    continue
+                target=self.tracker.targets.get((self.camera_id,oid))
+                reference=target.reference_descriptors if target else None
+                proven=False
+                if reference is not None and len(reference)>=6:
+                    if keys is None:keys,descriptors=self.tracker.detector.detectAndCompute(gray,d['mask'])
+                    if descriptors is not None and len(descriptors)>=6:
+                        pairs=cv2.BFMatcher().knnMatch(reference,descriptors,k=2)
+                        matches=[a for pair in pairs if len(pair)==2 for a,b in [pair] if a.distance<.65*b.distance]
+                        if len(matches)>=6:
+                            src=np.float32([target.reference_keypoints[m.queryIdx].pt for m in matches])
+                            dst=np.float32([keys[m.trainIdx].pt for m in matches])
+                            transform,inliers=cv2.estimateAffinePartial2D(src,dst,method=cv2.RANSAC,ransacReprojThreshold=3.)
+                            proven=transform is not None and inliers.sum()>=max(6,.65*len(matches)) and cv2.contourArea(cv2.convexHull(dst[inliers.ravel().astype(bool)]))>.08*np.count_nonzero(d['mask'])
+                # Texture-poor sliders can use a very strong appearance match,
+                # but only if no other object has a compatible enrolled class.
+                isolated=not any(other!=oid and (self._compatible(m['label'],meta['label']) or self.overhead and {m['label'],meta['label']}.issubset({'disk','can','cup','bottle'})) for other,m in self.objects.items())
+                if proven or compatible and isolated and similarity>=.92:
+                    choices.append(oid)
+            if len(choices)!=1:
+                if choices:reserved.add(i)  # ambiguous remembered items must not mint a replacement ID
+                continue
+            oid=choices[0];center=np.asarray(d.get('center') or [(d['bbox'][0]+d['bbox'][2])/2,(d['bbox'][1]+d['bbox'][3])/2])
+            prior=previous.get(oid);size=max(d['bbox'][2]-d['bbox'][0],d['bbox'][3]-d['bbox'][1])
+            hits=prior['hits']+1 if prior and np.linalg.norm(center-prior['center'])<2*size else 1
+            pending[oid]=dict(center=center,hits=hits)
+            reserved.add(i)
+            if hits>=2:confirmed[i]=oid
+        # Competing detections for the same remembered ID are ambiguous.
+        confirmed={i:oid for i,oid in confirmed.items() if list(confirmed.values()).count(oid)==1}
+        self.reentry_candidates=pending
+        return confirmed,reserved
 
     def _gate_score(self, meta, predicted, d, signature, w, h):
         """Score in [0, .9] for re-attaching detection d to an existing track near its predicted position."""
@@ -407,7 +552,7 @@ class LiveSession:
             raise ValueError('Empty object mask')
         middle=len(xs)//2
         obs=self.tracker.select(self.frame,self.camera_id,int(xs[middle]),int(ys[middle]),
-                                self.timestamp(),'uncalibrated-live',mask,allow_textureless=self.overhead and label=='disk')
+                                self.timestamp(),'uncalibrated-live',mask,allow_textureless=self.overhead and (label=='disk' or source=='registered_region'))
         x,y,x2,y2=obs['bbox_xyxy']
         self.objects[obs['object_id']]=dict(label=label,source=source,number=len(self.objects)+1,
             origin=[(x+x2)/2,(y+y2)/2],previous=None,bbox=obs['bbox_xyxy'],
@@ -439,7 +584,7 @@ class LiveSession:
         mask = np.zeros((h,w),np.uint8)
         mask[y:y2,x:x2] = 255
         # Build a replacement first: invalid selection must not erase the old one.
-        candidate = Tracker(self.tuning)
+        candidate = Tracker(self.tuning,normalize_illumination=True)
         observation = candidate.select(self.frame,self.camera_id,(x+x2)/2,(y+y2)/2,
                                         self.timestamp(),"uncalibrated-live",mask)
         self.tracker, self.observation = candidate, observation
@@ -454,7 +599,7 @@ class LiveSession:
     def clear(self):
         self.objects = {}
         self.pending_objects = []
-        self.tracker = Tracker(self.tuning)
+        self.tracker = Tracker(self.tuning,normalize_illumination=True)
         self.observation = self.origin = self.previous = None
         self.selection_source = None
         self.detector = MotionSelector()
@@ -516,13 +661,22 @@ class LiveSession:
             table_xy=None
             if obs['tracking_state']=='tracked' and self.table_plane is not None and self.frame is not None:
                 table_xy=self.table_xy(oid)
-            objects.append(dict(observation=obs,motion=motion,orientation=orientation,skeleton=skeleton,object_label=meta['label'],number=meta['number'],selection_source=meta['source'],table_xy_m=table_xy))
+            control_features=None
+            if self.overhead and obs['tracking_state']=='tracked' and meta['label'] in {'can','bottle','cup'}:
+                measured=mask_features(self.tracker.targets[(self.camera_id,oid)].mask)
+                if measured is not None:
+                    control_features=measured.to_dict()
+            objects.append(dict(observation=obs,motion=motion,orientation=orientation,skeleton=skeleton,object_label=meta['label'],number=meta['number'],selection_source=meta['source'],table_xy_m=table_xy,control_features=control_features))
         primary=objects[0] if objects else {}
         return dict(frame_id=self.frame_id, observation=primary.get('observation'), motion=primary.get('motion'),objects=objects,
                     timestamp_domain="server_receipt_unix_ms", coordinate_units="image_pixels",
                     auto_enabled=self.auto_enabled, selection_source=self.selection_source,
                     auto_status=self.detector.status, camera_id=self.camera_id,object_label=self.object_label,
-                    detector=f'{getattr(self.engine,"model_name","YOLOE")} segmentation + optical flow' if self.engine else 'motion fallback',
+                    detector=(f'{getattr(self.engine,"model_name","YOLOE")} + EdgeTAM corrections + optical flow' if self.temporal else
+                              f'{getattr(self.engine,"model_name","YOLOE")} segmentation + optical flow') if self.engine else 'motion fallback',
+                    temporal_tracking=dict(enabled=self.temporal is not None,
+                        status=self.temporal.status if self.temporal else 'disabled',
+                        correction_ms=self.temporal.last_ms if self.temporal else None),
                     detections=ObjectSegmenter.public(self.detections) if self.engine else [],
                     focus_sharpness=self.focus_score, capture_sample_ms=self.capture_sample_ms,
                     table_plane=self.table_plane.describe() if self.table_plane is not None else None,
@@ -543,13 +697,66 @@ class LiveSession:
 
 class LiveServer(ThreadingHTTPServer):
     daemon_threads = True
-    def __init__(self, address, engine=None):
+    def __init__(self, address, engine=None, temporal_model=None):
         super().__init__(address, Handler)
-        self.sessions = {name:LiveSession(name,engine,async_detection=not SYNC_DETECTION) for name in ('front','top')}
+        self.sessions = {name:LiveSession(name,engine,async_detection=not SYNC_DETECTION,temporal_model=temporal_model) for name in ('front','top')}
         self.session = self.sessions['front']
         from vision.stereo import WorkspaceMapper
         self.mapper = WorkspaceMapper()
         self.voice = CartesiaVoice()
+        self.usb_guard = USBPhoneGuard()
+        from vision.exposure import WebcamExposure
+        self.exposure=WebcamExposure()
+        self.speech_input = CartesiaSpeechInput()
+        from vision.morph import MorphPlanner
+        from vision.action_runtime import ActionRuntime
+        from vision.morph import catalog
+        from vision.cover import HandDetector
+        self.actions=ActionRuntime(self.action_snapshot)
+        self.morph = MorphPlanner(catalog_provider=lambda:catalog(self.actions.registry.catalog(),HandDetector.available()))
+        self.keyboard = KeyboardOutput(visible=self.key_object_visible)
+
+    def action_snapshot(self,oid,include_frame=False):
+        session=self.sessions['top']
+        if not session.lock.acquire(timeout=.03):return None
+        try:
+            meta=session.objects.get(oid)
+            if meta is None or session.frame is None:return None
+            bbox=meta['observation'].get('bbox_xyxy') or meta['bbox']
+            h,w=session.frame.shape[:2]
+            return dict(tracked=meta['observation']['tracking_state']=='tracked',bbox=list(bbox),
+                        position=[(bbox[0]+bbox[2])/(2*w),(bbox[1]+bbox[3])/(2*h)],
+                        stamp=session.last_received,frame_id=session.frame_id,
+                        frame=session.frame.copy() if include_frame else None)
+        finally:session.lock.release()
+
+    def mapping_objects(self):
+        from vision.cover import HandDetector
+        session=self.sessions['top']
+        with session.lock:
+            objects=[]
+            if time.monotonic()-session.last_received<.4:
+                for item in session.result()['objects']:
+                    if item['observation']['tracking_state']!='tracked':continue
+                    controllers=['joystick','slider_x','slider_y']
+                    if HandDetector.available():controllers.append('cover_button')
+                    objects.append(dict(object_id=item['observation']['object_id'],label=item['object_label'],number=item['number'],controllers=controllers))
+            return objects
+
+    def key_object_visible(self, oid):
+        session=self.sessions['top']
+        if not session.lock.acquire(timeout=.02):
+            return False
+        try:
+            meta=session.objects.get(oid)
+            return bool(meta and meta['observation']['tracking_state']=='tracked' and time.monotonic()-session.last_received<.4)
+        finally:
+            session.lock.release()
+
+    def server_close(self):
+        if hasattr(self,'keyboard'):self.keyboard.close()
+        if hasattr(self,'actions'):self.actions.close()
+        super().server_close()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -558,7 +765,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, message, *args):
         # No per-frame logs, image bytes, camera names or request bodies.
-        if self.path != '/api/frame':
+        if self.path not in ('/api/frame','/api/keys/update','/api/keys/status'):
             LOG.info("%s", message % args)
 
     def send(self, status, body, content_type="application/json"):
@@ -591,7 +798,10 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         assets = {'/':('fusion.html','text/html; charset=utf-8'),
                   '/single':('index.html','text/html; charset=utf-8'),
+                  '/commands.js':('commands.js','text/javascript; charset=utf-8'),
+                  '/mic-worklet.js':('mic-worklet.js','text/javascript; charset=utf-8'),
                   '/voice.js':('voice.js','text/javascript; charset=utf-8'),
+                  '/neutral-stick.js':('neutral-stick.js','text/javascript; charset=utf-8'),
                   '/stick.js':('stick.js','text/javascript; charset=utf-8'),
                   '/motion-filter.js':('motion-filter.js','text/javascript; charset=utf-8'),
                   '/dashboard.js':('dashboard.js','text/javascript; charset=utf-8'),
@@ -604,6 +814,16 @@ class Handler(BaseHTTPRequestHandler):
                   '/style.css':('style.css','text/css; charset=utf-8')}
         if path == '/api/health':
             self.send(200,dict(status="ready",mode="dual-camera-live",stores_frames=False))
+        elif path == '/api/morph/status':
+            self.send(200,self.server.morph.status())
+        elif path == '/api/actions/status':
+            self.send(200,self.server.actions.status())
+        elif path == '/api/keys/status':
+            self.send(200,self.server.keyboard.status())
+        elif path == '/api/camera/exposure':
+            self.send(200,self.server.exposure.status())
+        elif path == '/api/iphone/usb':
+            self.send(200,self.server.usb_guard.status())
         elif path == '/api/voice/status':
             self.send(200,self.server.voice.status())
         elif path == '/api/world':
@@ -631,6 +851,66 @@ class Handler(BaseHTTPRequestHandler):
             if len(body) != length:
                 raise ValueError("Incomplete request")
             path = urlsplit(self.path).path
+            if path == '/api/camera/exposure':
+                if self.headers.get_content_type()!='application/json' or length>1024:raise ValueError('Expected a small exposure command.')
+                payload=json.loads(body)
+                if not isinstance(payload,dict):raise ValueError('Expected an exposure object.')
+                try:self.send(200,self.server.exposure.configure(payload.get('label'),payload.get('locked')))
+                except (RuntimeError,OSError) as exc:self.send(503,dict(error=str(exc)))
+                return
+            if path == '/api/morph/plan':
+                if self.headers.get_content_type()!='application/json' or length>16384:raise ValueError('Expected a small mapping request.')
+                payload=json.loads(body)
+                if not isinstance(payload,dict):raise ValueError('Expected a mapping object.')
+                objects=self.server.mapping_objects()
+                moved=payload.get('moved',[])
+                if not isinstance(moved,list) or len(moved)>100:raise ValueError('Invalid movement context.')
+                for item in objects:item['recently_moved']=item['object_id'] in moved
+                try:self.send(200,self.server.morph.plan(payload.get('transcript'),objects,payload.get('selected'),payload.get('current')))
+                except VoiceError as exc:self.send(exc.status,dict(error=str(exc)))
+                return
+            if path.startswith('/api/actions/'):
+                if self.headers.get_content_type()!='application/json' or length>8192:raise ValueError('Expected a small action request.')
+                payload=json.loads(body)
+                if not isinstance(payload,dict):raise ValueError('Expected an action object.')
+                try:
+                    if path=='/api/actions/arm':
+                        from vision.morph import validate_plan
+                        mapping=payload.get('mapping')
+                        validate_plan(dict(status='ready',message='Activate mapping',mapping=mapping),self.server.mapping_objects(),self.server.morph.catalog_provider())
+                        self.server.keyboard.disarm('New desktop action')
+                        result=self.server.actions.arm(mapping)
+                    elif path=='/api/actions/update':result=self.server.actions.update(payload.get('token'),payload.get('sequence'),payload.get('enabled'))
+                    elif path=='/api/actions/stop':result=self.server.actions.stop('Stopped from dashboard')
+                    else:self.send(404,dict(error='Not found'));return
+                    self.send(200,result)
+                except PermissionError as exc:self.send(403,dict(error=str(exc)))
+                except (RuntimeError,OSError) as exc:self.send(503,dict(error=str(exc)))
+                return
+            if path == '/api/voice/transcribe':
+                if self.headers.get_content_type() not in ('audio/wav','audio/x-wav'):
+                    raise ValueError('Expected microphone WAV audio')
+                try:self.send(200,self.server.speech_input.transcribe(body))
+                except VoiceError as exc:self.send(exc.status,dict(error=str(exc)))
+                return
+            if path.startswith('/api/keys/'):
+                if self.headers.get_content_type()!='application/json' or length>4096:
+                    raise ValueError('Expected a small JSON key command')
+                payload=json.loads(body)
+                if not isinstance(payload,dict):raise ValueError('Expected a JSON object')
+                try:
+                    if path=='/api/keys/arm':
+                        self.server.actions.stop('Keyboard controller armed')
+                        result=self.server.keyboard.arm(payload.get('object_id'),payload.get('mode','game'),payload.get('allowed_keys'))
+                    elif path=='/api/keys/update':result=self.server.keyboard.update(payload.get('token'),payload.get('keys'),payload.get('sequence'))
+                    elif path=='/api/keys/test':result=self.server.keyboard.test_taps()
+                    elif path=='/api/keys/request-permission':result=dict(accessibility=request_accessibility_permission())
+                    elif path=='/api/keys/stop':result=self.server.keyboard.disarm('Stopped from dashboard')
+                    else:self.send(404,dict(error='Not found'));return
+                    self.send(200,result)
+                except PermissionError as exc:self.send(403,dict(error=str(exc)))
+                except RuntimeError as exc:self.send(503,dict(error=str(exc)))
+                return
             if path == '/api/voice/speak':
                 if self.headers.get_content_type() != 'application/json' or length > 256:
                     raise ValueError('Expected a small JSON voice event')
@@ -665,6 +945,14 @@ class Handler(BaseHTTPRequestHandler):
                     elif path == '/api/map/reset':
                         self.server.mapper.reset_anchor()
                         result = dict(status='reference_reset')
+                    elif path == '/api/register-region':
+                        box=payload.get('bbox')
+                        if session.frame is None or not isinstance(box,list) or len(box)!=4 or any(type(v) not in (int,float) or not np.isfinite(v) or not 0<=v<=1 for v in box):raise ValueError('Draw a finite region within the camera image.')
+                        h,w=session.frame.shape[:2];x,y,x2,y2=[round(v*(w if i%2==0 else h)) for i,v in enumerate(box)]
+                        if min(x2-x,y2-y)<12:raise ValueError('Select a larger sticker/region.')
+                        mask=np.zeros((h,w),np.uint8);mask[y:y2,x:x2]=1
+                        session._add_object(mask,'sticker','registered_region')
+                        result=session.result()
                     elif path == '/api/select':
                         result = session.select(payload.get('frame_id'),payload.get('bbox'))
                     elif path == '/api/rotation/reset':
@@ -736,6 +1024,9 @@ def main():
     parser.add_argument('--detector',choices=['yolo','motion'],default='yolo')
     parser.add_argument('--device',choices=['auto','cpu','mps'],default='auto')
     parser.add_argument('--sync-detection',action='store_true',help='run the model inside each frame request (old behaviour)')
+    parser.add_argument('--temporal', choices=['flow', 'edgetam'], default='flow', help='optional background EdgeTAM corrections')
+    parser.add_argument('--edgetam-source', default='outputs/research/EdgeTAM')
+    parser.add_argument('--edgetam-checkpoint', default='outputs/research/EdgeTAM/checkpoints/edgetam.pt')
     parser.add_argument('--model-size',choices=['s','m','l','x'],default='x',
                         help='YOLOE size: s is several times faster than x (run `python -m vision.prepare_model --size s` once)')
     parser.add_argument('--calibration',help='calibration JSON (calibration/data/rig_calibration.json or stereo format)')
@@ -743,6 +1034,8 @@ def main():
     parser.add_argument('--front-camera',help='calibration id of the side camera, enables calibrated 3D (e.g. cam_2)')
     parser.add_argument('--plane-height-m',type=float,default=0.0,help='height of the tracking plane above the calibrated table')
     args = parser.parse_args()
+    if args.temporal == 'edgetam' and (args.sync_detection or args.detector != 'yolo'):
+        parser.error('EdgeTAM requires asynchronous YOLOE discovery; remove --sync-detection and use --detector yolo')
     logging.basicConfig(level=logging.INFO,format='%(levelname)s %(name)s %(message)s')
     cv2.setNumThreads(2)
     engine=None
@@ -756,11 +1049,25 @@ def main():
     SYNC_DETECTION = args.sync_detection
     if engine is None:
         print('NOTE: no segmentation model loaded: only MOVING regions are tracked (motion fallback).',flush=True)
-    server = LiveServer(('127.0.0.1', args.port),engine)
+    temporal_model = None
+    if args.temporal == 'edgetam':
+        if engine is None:
+            raise RuntimeError('EdgeTAM requires a working YOLOE discovery model')
+        from vision.temporal import EdgeTAMModel
+        temporal_model = EdgeTAMModel(args.edgetam_source, args.edgetam_checkpoint, engine.device, engine.lock)
+        print('EdgeTAM corrections enabled; optical flow remains the per-frame tracker.', flush=True)
+    server = LiveServer(('127.0.0.1', args.port),engine,temporal_model=temporal_model)
     if args.calibration:
         configure_calibration(server,json.loads(Path(args.calibration).read_text()),args.top_camera,args.front_camera,args.plane_height_m)
     print(f'Phantom live camera: http://localhost:{server.server_port}',flush=True)
     print('Use Safari or Chrome on this Mac. Start the connected USB webcam and move an object after the scene settles.',flush=True)
+    import atexit
+    import signal
+    atexit.register(server.keyboard.close)
+    def release_on_signal(signum,frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM,release_on_signal)
+    if hasattr(signal,'SIGHUP'):signal.signal(signal.SIGHUP,release_on_signal)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

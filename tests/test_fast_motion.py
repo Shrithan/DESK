@@ -1,6 +1,7 @@
 """Fast moves (boxes no longer overlap between frames) must keep the same object ID."""
 import cv2
 import numpy as np
+import pytest
 
 from vision.live import LiveSession
 
@@ -128,3 +129,58 @@ def test_identical_neighbour_does_not_steal_the_id(monkeypatch):
     by_id = {o['observation']['object_id']: o['observation'] for o in r['objects']}
     assert by_id[parked]['bbox_xyxy'][0] < 120, 'parked can lost its ID to the moving one'
     assert len(s.objects) == 2
+
+
+def test_missed_detection_does_not_snap_to_different_distant_can(monkeypatch):
+    clock=[100.]
+    monkeypatch.setattr('vision.live.time.monotonic',lambda:clock[0])
+    e=MovingCan();e.x=50
+    s=LiveSession(engine=e);s.workspace_multi=True
+    frame=scene(50)[0]
+    rng=np.random.default_rng(17)
+    frame[120:200,480:560]=np.clip(np.array([40,200,40])+rng.integers(-25,25,(80,80,3)),0,255).astype('uint8')
+    for _ in range(4):
+        clock[0]+=.4;s.receive(jpeg(frame))
+    oid=next(iter(s.objects))
+    e.x=480  # model misses the original but sees a different distant can
+    clock[0]+=.4;r=s.receive(jpeg(frame))
+    original=next(o for o in r['objects'] if o['observation']['object_id']==oid)
+    assert original['observation']['bbox_xyxy'][0]<150
+
+
+def test_overhead_control_features_are_measured_only_while_tracked(monkeypatch):
+    clock=[100.]
+    monkeypatch.setattr('vision.live.time.monotonic',lambda:clock[0])
+    e=MovingCan();s=LiveSession(engine=e);s.overhead=True
+    for _ in range(4):
+        clock[0]+=.15;r=s.receive(jpeg(scene(e.x)[0]))
+    f=r['objects'][0]['control_features']
+    assert f['cx']==pytest.approx(e.x+39.5,abs=1)
+    assert f['area']>5000 and f['cxx']>0 and f['cyy']>0
+    oid=next(iter(s.objects));s.objects[oid]['observation']['tracking_state']='lost'
+    assert s.result()['objects'][0]['control_features'] is None
+
+
+def test_exit_and_opposite_edge_reentry_after_long_gap_keeps_mapping_id(monkeypatch):
+    clock=[100.];monkeypatch.setattr('vision.live.time.monotonic',lambda:clock[0])
+    e=MovingCan();e.x=40;s=LiveSession(engine=e);s.workspace_multi=True
+    for _ in range(3):clock[0]+=.2;s.receive(jpeg(scene(40)[0]))
+    oid=next(iter(s.objects));real=e.detect;e.detect=lambda f:[]
+    for _ in range(12):clock[0]+=1;s.receive(jpeg(np.full((360,640,3),90,np.uint8)))
+    e.detect=real;e.x=510
+    for _ in range(4):clock[0]+=.2;result=s.receive(jpeg(scene(510)[0]))
+    assert list(s.objects)==[oid],'exiting must not discard the enrolled mapping ID'
+    assert result['objects'][0]['observation']['tracking_state']=='tracked'
+    assert result['objects'][0]['observation']['bbox_xyxy'][0]>480
+
+
+def test_different_appearance_reentry_is_not_the_original_slider(monkeypatch):
+    clock=[100.];monkeypatch.setattr('vision.live.time.monotonic',lambda:clock[0])
+    e=MovingCan();s=LiveSession(engine=e);s.workspace_multi=True
+    for _ in range(3):clock[0]+=.2;s.receive(jpeg(scene(40)[0]))
+    oid=next(iter(s.objects));real=e.detect;e.detect=lambda f:[]
+    for _ in range(10):clock[0]+=1;s.receive(jpeg(np.full((360,640,3),90,np.uint8)))
+    e.detect=real;e.x=510
+    different=scene(510)[0];different[120:200,510:590]=np.random.default_rng(37).integers(10,50,(80,80,3),dtype=np.uint8)
+    for _ in range(3):clock[0]+=.2;s.receive(jpeg(different))
+    assert s.objects[oid]['observation']['tracking_state']=='lost'

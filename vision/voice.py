@@ -8,6 +8,12 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 PHRASES = {
+    'command_example': 'Map this can to a joystick.',
+    'mapping_joystick': 'Mapped as a joystick. Keep it upright to calibrate. Arm real keys when you are ready.',
+    'mapping_ambiguous': 'I see more than one possible object. Choose the voice target, then try again.',
+    'mapping_unknown': 'Please say: map this can to a joystick, or stop keyboard control.',
+    'keys_armed': 'Real keyboard control is armed. Switch to your game or document.',
+    'keys_stopped': 'Keyboard control stopped.',
     'test': 'Phantom voice is ready. Turn everyday objects into controls.',
     'cameras_ready': 'Both cameras are connected. Move an object to get started.',
     'cameras_stopped': 'Cameras stopped.',
@@ -16,7 +22,7 @@ PHRASES = {
     'tracking_lost': 'Control tracking lost. Move the object back into view.',
     'tracking_recovered': 'Tracking restored. Your controls are ready.',
 }
-ENV_KEYS = ('CARTESIA_API_KEY', 'CARTESIA_VOICE_ID', 'CARTESIA_MODEL_ID')
+ENV_KEYS = ('CARTESIA_API_KEY', 'CARTESIA_VOICE_ID', 'CARTESIA_MODEL_ID', 'ASI1_API_KEY', 'ASI_ONE_API_KEY', 'ASI1_MODEL')
 
 
 class VoiceError(Exception):
@@ -51,7 +57,7 @@ class CartesiaVoice:
         config = self.config()
         return dict(provider='cartesia', configured=bool(config.get('CARTESIA_API_KEY')),
                     model=config.get('CARTESIA_MODEL_ID') or 'sonic-3.6',
-                    sends='Fixed status phrases only; no camera frames or object coordinates')
+                    sends='Status phrases for speech; short microphone clips only when you click Talk. No camera frames.',speech_input_model='ink-whisper')
 
     def speak(self, event):
         if not isinstance(event, str) or event not in PHRASES:

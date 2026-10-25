@@ -73,7 +73,7 @@ def test_http_live_pipeline_and_origin_rejection():
         connection=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=5)
         connection.request('GET','/')
         response=connection.getresponse()
-        assert response.status==200 and b'Start both cameras' in response.read()
+        assert response.status==200 and b'Start overhead webcam' in response.read()
         connection.request('POST','/api/frame',jpeg(fixture()[0]),{'Content-Type':'image/jpeg'})
         response=connection.getresponse();assert response.status==200
         first=json.loads(response.read())
@@ -430,3 +430,106 @@ def test_voice_http_routes_and_camera_lock_independence():
         connection.request('POST','/api/voice/speak','{"event":"test"}',{'Content-Type':'application/json','Origin':'https://unrelated.example'})
         response=connection.getresponse();assert response.status==403;response.read()
         connection.close()
+
+
+def test_usb_status_route_keeps_private_device_data_off_wire():
+    class Guard:
+        def status(self):return dict(required=True,verified=True,connected=False,phone_count=0,video_transport='unverified')
+    with running_server() as server:
+        server.usb_guard=Guard()
+        connection=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=2)
+        connection.request('GET','/api/iphone/usb')
+        response=connection.getresponse()
+        assert response.status==200 and not json.loads(response.read())['connected']
+        connection.close()
+
+
+def test_voice_command_and_keyboard_http_routes_use_separate_locks():
+    from vision.keyboard import KeyboardOutput
+    class Backend:
+        def __init__(self):self.events=[]
+        def event(self,*args):self.events.append(args)
+    class Speech:
+        def transcribe(self,body):return dict(transcript='map this can to a joystick',intent={'action':'map_joystick','label':'can','number':None})
+    backend=Backend()
+    with running_server() as server:
+        server.keyboard.close()
+        server.keyboard=KeyboardOutput(backend_factory=lambda:backend,trusted=lambda:True,visible=lambda oid:True,start_watchdog=False)
+        server.speech_input=Speech()
+        connection=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=2)
+        connection.request('POST','/api/voice/transcribe',b'fixture clip',{'Content-Type':'audio/wav'})
+        response=connection.getresponse();assert response.status==200
+        assert json.loads(response.read())['intent']['action']=='map_joystick'
+        with server.sessions['front'].lock,server.sessions['top'].lock:
+            connection.request('POST','/api/keys/arm','{"object_id":"can"}',{'Content-Type':'application/json'})
+            response=connection.getresponse();assert response.status==200;token=json.loads(response.read())['token']
+            connection.request('POST','/api/keys/update',json.dumps(dict(token=token,keys=['w'],sequence=0)),{'Content-Type':'application/json'})
+            response=connection.getresponse();assert response.status==200;assert json.loads(response.read())['held']==['w']
+        connection.request('POST','/api/keys/stop','{}',{'Content-Type':'application/json'})
+        response=connection.getresponse();assert response.status==200;assert not json.loads(response.read())['armed']
+        connection.request('POST','/api/keys/arm','{"object_id":"can"}',{'Content-Type':'application/json','Origin':'https://unrelated.example'})
+        response=connection.getresponse();assert response.status==403;response.read()
+        connection.close()
+    assert backend.events==[('w',True),('w',False)]
+
+
+def test_morph_http_uses_actual_fresh_snapshot_and_releases_camera_lock(monkeypatch):
+    from vision.cover import HandDetector
+    monkeypatch.setattr(HandDetector,"available",staticmethod(lambda:False))
+    import time
+    seen=[]
+    with running_server() as server:
+        top=server.sessions['top']
+        top.last_received=time.monotonic()
+        top.result=lambda:dict(objects=[dict(observation=dict(object_id='real-can',tracking_state='tracked'),object_label='cup',number=2,orientation=None)])
+        class Planner:
+            def status(self):return dict(configured=True)
+            def plan(self,text,objects,selected,current):
+                # Planning/network work must not block vision's lock.
+                acquired=[]
+                def probe():
+                    ok=top.lock.acquire(timeout=.2);acquired.append(ok)
+                    if ok:top.lock.release()
+                t=threading.Thread(target=probe);t.start();t.join();assert acquired==[True]
+                seen.append(objects)
+                return dict(plan=dict(status='clarify',message='Which control?',mapping=None))
+        server.morph=Planner()
+        connection=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=3)
+        connection.request('GET','/api/morph/status');response=connection.getresponse();assert response.status==200;response.read()
+        payload=json.dumps(dict(transcript='Map this',moved=['real-can'],objects=[dict(object_id='invented')]))
+        connection.request('POST','/api/morph/plan',payload,{'Content-Type':'application/json'})
+        response=connection.getresponse();assert response.status==200;assert json.loads(response.read())['plan']['status']=='clarify'
+        assert seen[0]==[dict(object_id='real-can',label='cup',number=2,controllers=['joystick','slider_x','slider_y'],recently_moved=True)]
+        connection.request('POST','/api/morph/plan',payload,{'Content-Type':'application/json','Origin':'https://unrelated.example'})
+        response=connection.getresponse();assert response.status==403;response.read();connection.close()
+
+
+def test_generic_action_http_and_registered_sticker():
+    import time
+    from vision.action_runtime import ActionRuntime
+    with running_server() as server:
+        connection=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=3)
+        connection.request('POST','/api/frame',jpeg(fixture()[0]),{'Content-Type':'image/jpeg','X-Camera-Id':'top'})
+        response=connection.getresponse();assert response.status==200;response.read()
+        connection.request('POST','/api/register-region',json.dumps(dict(bbox=[.25,.29,.5,.63])),{'Content-Type':'application/json','X-Camera-Id':'top'})
+        response=connection.getresponse();assert response.status==200
+        item=json.loads(response.read())['objects'][0];assert item['object_label']=='sticker'
+        oid=item['observation']['object_id'];top=server.sessions['top']
+        class Parameter:
+            value=.5
+            def get_value(self):return self.value
+            def set_value(self,value):self.value=value
+        parameter=Parameter()
+        server.actions.registry.register('test.app.parameter',dict(label='App parameter',kind='continuous',controllers=['slider_x','slider_y'],bindings=dict(negative='decrease',positive='increase')),parameter)
+        mapping=dict(object_id=oid,controller='slider_x',output='test.app.parameter',bindings=dict(negative='decrease',positive='increase'),deadzone=.18,mode='game')
+        connection.request('POST','/api/actions/arm',json.dumps(dict(mapping=mapping)),{'Content-Type':'application/json'})
+        response=connection.getresponse();assert response.status==200;token=json.loads(response.read())['token']
+        connection.request('POST','/api/actions/update',json.dumps(dict(token=token,sequence=1,enabled=False)),{'Content-Type':'application/json'})
+        response=connection.getresponse();assert response.status==200;assert json.loads(response.read())['armed'];assert parameter.value==.5
+        connection.request('POST','/api/actions/update',json.dumps(dict(token='wrong',sequence=2,enabled=True)),{'Content-Type':'application/json'})
+        response=connection.getresponse();assert response.status==403;response.read()
+        connection.request('POST','/api/actions/stop','{}',{'Content-Type':'application/json'})
+        response=connection.getresponse();assert response.status==200;assert not json.loads(response.read())['armed']
+        mapping['output']='unregistered.app.parameter'
+        connection.request('POST','/api/actions/arm',json.dumps(dict(mapping=mapping)),{'Content-Type':'application/json'})
+        response=connection.getresponse();assert response.status==400;response.read();connection.close()

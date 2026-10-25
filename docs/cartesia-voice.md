@@ -1,6 +1,6 @@
 # Cartesia voice feedback
 
-The live dashboard has opt-in **Voice feedback** and **Test voice** controls. It announces camera connection/stop, joystick/slider readiness, sustained tracking loss and recovery. It does not listen to the microphone or interpret spoken commands yet.
+The live dashboard has opt-in **Voice feedback** and **Test voice** controls. It announces camera connection/stop, joystick/slider readiness, sustained tracking loss and recovery. Spoken object mapping is now available through a separate **Talk to map** button; see `docs/voice-joystick.md`. Microphone clips are sent only after the user starts a voice command.
 
 ## Configure
 
@@ -18,9 +18,9 @@ Open http://localhost:8765, click **Test voice**, then enable **Voice feedback**
 
 `vision/voice.py` uses Cartesia's documented `POST https://api.cartesia.ai/tts/bytes`, API version `2026-08-14`, default model `sonic-3.6`, and a public voice from the official API example. Output is WAV / signed 16-bit PCM / 44100 Hz. See https://docs.cartesia.ai/api-reference/tts/bytes.
 
-Only seven fixed status phrases are eligible for synthesis. No frames, object names, coordinates, or microphone audio are sent. Key stays server-side. Audio is cached in memory per phrase/configuration; requests have bounded timeouts, response size and rate. HTTP speech requests use their own lock outside camera session/model locks. The frontend limits announcements, debounces losses for 750 ms and avoids narrating frame changes or brief occlusions.
+Only predefined status/confirmation phrases are eligible for synthesis. No camera frames or object coordinates are sent. The separate command feature sends a bounded microphone WAV clip to Cartesia Ink when the user clicks Talk. Key stays server-side. Audio is cached in memory per phrase/configuration; requests have bounded timeouts, response size and rate. HTTP speech requests use their own lock outside camera session/model locks. The frontend limits announcements, debounces losses for 750 ms and avoids narrating frame changes or brief occlusions.
 
-Text captions remain available without credentials. They are not presented as a working Cartesia voice demo. Automated provider tests use explicit fixture bytes, not real generated speech. A real authenticated test is still required before claiming sponsor integration is demonstrated; track eligibility has not been verified.
+Text captions remain available without credentials. They are not presented as a working Cartesia voice demo. Automated provider tests use explicit fixture bytes, not real generated speech. A real authenticated Sonic → Ink command round trip has now succeeded; see `docs/voice-joystick.md`. Track eligibility has not been verified.
 
 ## Validation
 

@@ -26,6 +26,7 @@ async function refreshVoiceStatus(){
 function unlockVoice(){const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)throw new Error('Audio playback is unavailable in this browser.');voiceAudio.context=voiceAudio.context||new Audio();voiceAudio.context.resume();}
 function cancelVoice(){voiceAudio.version++;voiceAudio.pending=null;voiceAudio.request?.abort();try{voiceAudio.source?.stop();}catch(_){}voiceAudio.source=null;}
 async function speakVoice(event,test=false){
+ if(voiceAudio.micBusy)return;
  if(!test&&!$('voice-enabled').checked)return;
  if(voiceAudio.busy){voiceAudio.pending={event,stamp:performance.now()};return;}
  if(!test&&performance.now()-lastVoiceAt<2500)return;

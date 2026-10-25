@@ -19,15 +19,21 @@ function renderFlatInputs(){
   if(containers.length&&(containers.length===1||area(containers[0])>area(containers[1])*1.5)){
    const item=containers[0],id=item.observation.object_id;flatInputs.set(id,{mode:'xy',label:'Can joystick',range:null,pivot:true});
    const pair=pairs.find(p=>p.top===id);if(pair)pairs.splice(pairs.indexOf(pair),1);
-   canJoystickArmed=false;sessionStorage.removeItem('can-joystick-armed');$('can-status').textContent='Can assigned. Move/lean the top for W/A/S/D; the saved center is its base pivot. Twist is shown separately when visible. Center & zero yaw establishes the neutral position.';
+   canJoystickArmed=false;sessionStorage.removeItem('can-joystick-armed');$('can-status').textContent='Can assigned. Stand it upright and still for one second. Use Learn W and Learn D on its card to teach the tilted camera your directions.';
   }else $('can-status').textContent=containers.length?'Several similar objects are visible. Choose your can in Overhead input object, then Use as input.':'Waiting for your can under the overhead camera. Move it briefly to acquire it.';
  }
- for(const item of tracked){const id=item.observation.object_id;if(item.object_label==='disk'&&!pairs.some(p=>p.top===id)&&!flatInputs.has(id)&&!dismissedFlatInputs.has(id))flatInputs.set(id,{mode:'xy',label:`Disk #${item.number}`,range:null});}
+ for(const item of tracked){const id=item.observation.object_id;if(item.object_label==='disk'&&(!cameras.front.stream)&&!pairs.some(p=>p.top===id)&&!flatInputs.has(id)&&!dismissedFlatInputs.has(id))flatInputs.set(id,{mode:'xy',label:`Disk #${item.number}`,range:null});}
  const select=$('flat-object'),old=select.value;
  select.replaceChildren(new Option('Choose overhead object…',''),...tracked.filter(o=>o.observation.tracking_state==='tracked').map(o=>new Option(`#${o.number} ${o.object_label}`,o.observation.object_id)));
  if([...select.options].some(o=>o.value===old))select.value=old;
  const cards=[];
  for(const [id,input] of flatInputs){
+  if(input.controlKind==='cover_button'){
+   const card=document.createElement('div');card.className='track-card';
+   const title=document.createElement('strong');title.textContent=input.label;
+   const state=document.createElement('p');state.textContent=`Cover button · ${input.actionState?.phase||'waiting'} · ${input.actionState?.presses||0} presses · ${input.target}`;
+   card.append(title,state);cards.push(card);continue;
+  }
   const item=tracked.find(o=>o.observation.object_id===id),fresh=item?.observation.tracking_state==='tracked'&&item.motion&&performance.timeOrigin+performance.now()-cameras.top.acceptedSample<250;
   let value=fresh?flatValue(item.motion.center_px,[cameras.top.canvas.width,cameras.top.canvas.height],input.mode,input.range):null;
   if(value&&typeof euroStep==='function'){
@@ -52,7 +58,9 @@ function renderFlatInputs(){
    ctx.beginPath();ctx.moveTo(cx-radius,cy);ctx.lineTo(cx+radius,cy);ctx.moveTo(cx,cy-radius);ctx.lineTo(cx,cy+radius);ctx.stroke();
    let target=value?(input.pivot?canStick(value,input.origin,input.gain||30,{x:$('flip-top').checked,y:$('flip-y').checked}):joystickValue(value,input.origin)):null;
    let sample=cameras.top.acceptedSample;
-   if(input.pivot&&item){
+   input.poseMode=!!(input.pivot&&['can','bottle','cup'].includes(item?.object_label)&&!studioDemo);
+   if(input.poseMode)target=stepStickPose(input,fresh?item.control_features:null,sample,{x:$('flip-top').checked,y:$('flip-y').checked});
+   if(input.pivot&&item&&!input.poseMode){
     const sides=objects('front').filter(o=>o.skeleton&&o.observation.tracking_state==='tracked'&&compatible(o.object_label,item.object_label));
     const tops=tracked.filter(o=>o.observation.tracking_state==='tracked'&&compatible(o.object_label,item.object_label));
     if(sides.length===1&&tops.length<=1&&now-cameras.front.acceptedSample<150){
@@ -70,7 +78,7 @@ function renderFlatInputs(){
   const rotation=document.createElement('p');rotation.textContent=yaw==null?'Rotation unavailable · add a visible mark/texture; re-zero after a loss':`Relative yaw / rotation: ${yaw.toFixed(1)}° clockwise`;
   if(input.mode==='xy')input.keys=stickKeys(input.joystick,input.keys,input.controlActive);
   card.append(title,output,gauge,rotation);
-  const recenter=document.createElement('button');recenter.textContent='Center stick / zero rotation';recenter.disabled=!fresh;recenter.addEventListener('click',async()=>{if(value&&input.mode==='xy')input.origin=[value.x,value.y];input.sideId=null;input.continuity={};try{await api('/api/rotation/reset',{object_id:id},'top');input.yawFilter=null;input.yawStamp=null;}catch(err){error(err.message);}renderFlatInputs();});card.append(recenter);
+  const recenter=document.createElement('button');recenter.textContent='Center stick / zero rotation';recenter.disabled=!fresh;recenter.addEventListener('click',async()=>{if(value&&input.mode==='xy')input.origin=[value.x,value.y];if(input.poseMode)beginStickNeutral(input);input.sideId=null;input.continuity={};try{await api('/api/rotation/reset',{object_id:id},'top');input.yawFilter=null;input.yawStamp=null;}catch(err){error(err.message);}renderFlatInputs();});card.append(recenter);
   if(input.mode!=='xy')for(const end of [0,1]){const button=document.createElement('button');button.textContent=`Set ${end?'100':'0'}% here`;button.disabled=!fresh;button.addEventListener('click',()=>{const center=item.motion.center_px,size=[cameras.top.canvas.width,cameras.top.canvas.height],raw=flatValue(center,size,'xy');input.range=input.range||[0,1];input.range[end]=input.mode==='y'?raw.y:raw.x;input.filters={};input.filterStamp=null;renderFlatInputs();});card.append(button);}
   const remove=document.createElement('button');remove.textContent='Remove input';remove.addEventListener('click',()=>{flatInputs.delete(id);dismissedFlatInputs.add(id);card.remove();});card.append(remove);cards.push(card);
  }
@@ -79,10 +87,11 @@ function renderFlatInputs(){
 $('flat-add').addEventListener('click',()=>{
  const id=$('flat-object').value,item=objects('top').find(o=>o.observation.object_id===id);if(!item)return;
  flatInputs.set(id,{mode:$('flat-mode').value,pivot:$('flat-mode').value==='xy',label:`${item.object_label} #${item.number}`,range:null});
+ if($('flat-mode').value==='xy'&&typeof useOverheadJoystick==='function')void useOverheadJoystick();
  const pair=pairs.find(p=>p.top===id);if(pair)pairs.splice(pairs.indexOf(pair),1);
  renderFlatInputs();
 });
 
 setInterval(()=>{if(running)renderFlatInputs();},33);
 
-$('can-joystick').addEventListener('click',()=>{canJoystickArmed=true;sessionStorage.setItem('can-joystick-armed','1');renderFlatInputs();});
+$('can-joystick').addEventListener('click',()=>{if(typeof useOverheadJoystick==='function')void useOverheadJoystick();canJoystickArmed=true;sessionStorage.setItem('can-joystick-armed','1');renderFlatInputs();});

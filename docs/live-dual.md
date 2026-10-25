@@ -55,3 +55,21 @@ shared backend.
 Camera roles are assigned with `X-Camera-Id: front|top` on local analysis requests.
 Each has isolated tracker, frame counter and lock; sharing a model serializes neural
 inference but does not block either native camera preview. No frames are persisted.
+
+## iPhone USB-presence requirement
+
+The dashboard now requires exactly one iPhone in the Mac's USB inventory before opening an iPhone-labeled camera. It checks every two seconds while live and stops the session if USB presence is lost or verification fails. `/api/iphone/usb` returns only presence/count/status; no serial numbers or persistent USB identifiers are exposed.
+
+Connect a data-capable cable, unlock the phone, tap Trust This Computer if prompted, then lock/mount it and reconnect cameras. Apple supports wired Continuity Camera: https://support.apple.com/102546. Keep the OS requirements for Continuity enabled.
+
+This is a **USB-presence guard**, not proof of USB video transport or a native transport override. Safari's camera API does not expose a wired/wireless selection, and browser camera IDs cannot be matched to USB device IDs. macOS still controls the stream route. Use the same single connected iPhone selected in the camera picker. A dedicated USB camera driver would be needed for independently selectable USB-only video capture.
+
+Wireless Continuity is allowed by default again. The optional **Require a USB cable for iPhone** checkbox enables the prior USB presence guard; when unchecked, camera startup and the running connection are not blocked by USB inventory. macOS selects the actual video transport. Two-camera preview is the default, with both full images side by side near the top of the dashboard.
+
+Camo USB side-camera integration: Camo Studio's Camera Extension was installed and enabled in macOS, and its virtual device is now preferred for the side camera when available. Logitech remains the overhead source. Keep Camo Studio and the phone's Camo app running. Camo Studio reports the physical USB connection; the dashboard reads Camo's virtual video stream. Configure phone exposure/focus in Camo Studio; native UVC controls remain C270-only.
+
+Recording review (IMG screen capture 16:07): automatic overhead disk assignment could consume an overhead track before dual-view association. Auto disk input creation now runs only without a side stream; explicit voice/manual mappings still work in dual mode. Predicted/lost boxes are no longer displayed as measured object boxes. Preview height increased while retaining the complete source image. Camo's output menu offers a free Vertical 720p 9:16 profile; portrait output still requires suitable physical phone orientation/framing and must not be confused with adding optical coverage by stretching or cropping.
+
+Camo framing: capture constraints now omit width, height and aspect ratio for the Camo virtual camera, preserving its native output profile instead of requesting landscape. Other webcams keep their existing constraints. A regression test verifies Camo never receives a forced landscape aspect ratio.
+
+Joystick controls automatically use overhead-only capture. Selecting “Use my can as joystick,” “Add joystick,” a 2D input, or a voice-mapped joystick stops and releases the side camera, cancels its frame/exposure timers and frame callbacks, and resets its server session. The overhead stream and its object IDs/mappings stay intact; side results already in flight are ignored. Overhead-only preference persists for the browser session. Uncheck the mode and reconnect cameras when returning to dual-camera spatial mapping. This removes side-camera inference load; actual latency depends on capture and tracking throughput.

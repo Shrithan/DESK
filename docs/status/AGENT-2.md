@@ -516,3 +516,43 @@ world yaw or physical 3D can orientation is made from the image centerline.
 - Speech has independent locking, in-memory phrase caching, bounded network operations and quiet/debounced event handling; tracking does not wait for synthesis.
 - No API key found in process environment or local `.env` when work began. Prepared `.env.example` and empty ignored `.env`; real Cartesia audio remains unverified until user configures credentials. No sponsor eligibility claim.
 - Setup and implementation details: `docs/cartesia-voice.md`.
+
+### 2026-10-24 — spatial-calibrated integration and oblique-camera neutral
+- Integrated all of `origin/agent/spatial-calibrated` at `214f963` onto `codex/spatial-neutral-calibration` (base includes saved controls/Cartesia work).
+- Web can joystick now learns a stable 1-second upright pose from measured overhead-mask features. Non-round/slanted neutral silhouettes are accepted, and centroid-noise dead zone suppresses rest bias.
+- Added Learn W / Learn D: stable lean examples establish a local nonorthogonal image-to-control basis, supporting rotated/mirrored/oblique views. Keys are inactive during calibration and until the can returns upright. Recalibration releases immediately. Remains dashboard-only; no real OS key backend activated.
+- Calibrated can controls use overhead relative centroid displacement; side projected lean is not blindly mixed into the learned axes. This is not metric 3D tilt; fixed base and repeat calibration after moving the camera are required. Instructions: `docs/tilted-camera-joystick.md`.
+- Fixed reviewed identity regression: unique-class reassociation now requires bounded displacement, plausible size and appearance rather than assuming a sole detection is the same object. Added a deterministic background-can regression.
+- Fixed visible studio/map units: calibrated tabletop X/Y in centimeters, side Z still relative image percent.
+- Validation after integration: **215 Python tests passed, 2 skipped** (pynput optional tests), using isolated additional camera/hardware test dependencies; all **10 JavaScript test scripts passed**. `git diff --check` passed. Live server restarted with YOLOE X and asynchronous detection; physical upright/direction validation remains for the operator.
+- Operator live confirmation: after upright calibration with the tilted overhead camera, the joystick stays centered and W/A/S/D are released. W/D direction examples remain operator-driven; no claim of metric tilt accuracy.
+
+### 2026-10-24 — require USB-connected iPhone
+- Added a bounded/cached macOS USB inventory check and local `/api/iphone/usb` endpoint, without returning serials or device IDs.
+- iPhone-labeled browser sources require one verified USB-connected iPhone before start; live sessions stop if presence is lost/unknown on polling. Webcams are unaffected.
+- Explicit limit: cable presence does not force or verify Continuity's video routing; macOS controls transport. UI/docs state this. No network settings changed.
+- Verification: 21 relevant Python tests passed (live HTTP and USB guard), all 11 JS scripts passed. Mac inventory initially reported zero wired iPhones.
+
+### 2026-10-24 — spoken mapping and real keyboard output
+- Added click-to-talk Cartesia Ink STT and bounded in-memory mono WAV clips; Sonic confirms a recognized mapping. Deterministic joystick/stop grammar resolves a unique visible or recently moving object, with explicit Voice target selection on ambiguity.
+- Added native macOS WASD output with opt-in arming, game hold/document repeat modes, owner tokens, ordered updates and independent 350 ms stale-input watchdog. Backend visibility checks release on tracking loss; recalibration/stop/removal/page close release output. Only W/A/S/D accepted. No real keys were used in automated tests.
+- Added standard Accessibility permission request button and status. OS permission was false; the human must grant it before actual injection can be verified. No programmatic permission grant or network/security-setting change.
+- Added overhead-only joystick mode so this path works without Continuity. Removed intentional hidden-tab capture pause and use video media time for frame progress; browser background throttling remains a documented limit.
+- Real Cartesia round trip succeeded: Sonic example → Ink transcript “Map this can to a joystick.” → map_joystick intent, can label.
+- Full suite: 230 Python tests passed, 2 optional pynput tests skipped. All 13 JS checks passed. Setup: `docs/voice-joystick.md`.
+
+- Live permission/key validation: operator enabled the ChatGPT Accessibility entry. Server restart changed `/api/keys/status.accessibility` to true. Operator clicked the bounded native test and confirmed the local text field received `wasd`; all keys were released afterward. Actual microphone-to-object mapping is being tested by the operator.
+
+- Physical voice validation succeeded: operator said “Yes, the voice mapped my can.” Dashboard displayed the real transcript “Map this can to a joystick.” and a Voice joystick card. Real key test field showed typed WASD. Current output is disarmed after the local test; operator can arm and focus the target app. Game-specific compatibility remains untested.
+
+## Morph ASI:One mapping agent
+
+Added `vision/morph.py`, `/api/morph/status` and `/api/morph/plan`. Cartesia transcripts now flow to an ASI:One planner with the actual tracked-object snapshot and a complete supported input/output catalog. Strict plans drive joystick, sliders or measurable surface rotation, with configurable supported key bindings and automatic activation. Missing API key is explicit. UI includes active plan, capability catalog and undo. Expanded native output beyond WASD while retaining per-controller key allowlists, ownership and watchdog releases. See `docs/morph-mapping.md` for exact limits and live-key setup.
+
+## Generic desktop action registry and cover inputs
+
+Separated physical source processing from output adapters in `vision/desktop_actions.py` and `vision/action_runtime.py`. Registered continuous parameters reuse one slider runtime; added CoreGraphics pixel scrolling, CoreAudio output volume and DisplayServices built-in brightness with actual availability discovery. `vision/cover.py` uses local MediaPipe hand overlap plus appearance/dwell/reset to drive one key tap per stationary cover cycle. Added sticker-region registration, selective SIFT recovery for registered tracks, generic action HTTP activation/update/stop, schema-generated ASI outputs, target list, active-state feedback, cover cards and global stop/cancellation. Real native brightness/volume readback tests restored their prior settings; real ASI mapping tests and local hand model inference verified. Physical cover interaction still needs operator verification. No universal arbitrary-app control is claimed: new settings require an executable registered adapter, not a new slider implementation.
+
+## Exposure stability
+
+Added verified C270 UVC exposure/white-balance locking (`vision/exposure.py`), browser/manual controls with automatic startup reapplication, and optional robust illumination normalization for live optical flow. Native C270 readback confirmed auto mode 8 → manual mode 1, exposure retained at 33.3ms, gain retained, auto white balance off. Helper source/binary remain ignored and MIT license retained. See `docs/camera-exposure.md` for setup and limits. Also completed the previously prepared desktop-action gap recovery/readback changes so brief camera contention pauses rather than immediately dropping a parameter mapping.

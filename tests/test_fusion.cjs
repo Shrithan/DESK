@@ -36,3 +36,5 @@ context.fuse();assert.equal(context.pairs.length,2);assert.ok(context.pairs.ever
 context.cameras.top.result.objects[1].observation.tracking_state='lost';context.fuse();
 assert.equal(context.pairs[0].state,'holding','a lost pair holds briefly');assert.equal(context.pairs[1].state,'tracked');assert.ok(context.pairs[1].position,'loss of one pair must not interrupt the other');
 console.log('Multi-object checks passed: ambiguity rejection, explicit pairing, independent loss, no duplicate identities.');
+
+assert.match(context.formatSpatialPosition({position:[12,34,5],metric:true}),/X 12.0 cm.*Y 34.0 cm.*Z 5.0%/);

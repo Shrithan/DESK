@@ -112,3 +112,13 @@ Analysis uses at most 800 pixels on the longest edge, one pending request per
 camera, up to 24 analysis updates/second, with lower-rate segmentation. Native
 video does not wait for inference. These are scheduling limits, not performance
 promises. See [vision integration](docs/vision.md) and [status](docs/status/AGENT-2.md).
+
+### Voice mapping and real WASD
+
+The live studio now supports **Talk to map**: show an item and say “Map this can to a joystick.” Cartesia Ink transcribes the command, Sonic confirms it, and the mapped joystick can drive real W/A/S/D in the focused Mac app after Accessibility permission is granted. Choose Game mode for held keys or Document mode for repeated letters. Overhead-only mode works without an iPhone. See [voice mapping setup](docs/voice-joystick.md) for calibration, stopping, permissions and background-capture limits.
+
+Voice commands can also use the ASI:One mapping agent: add `ASI1_API_KEY` locally, start the overhead camera, then click **Talk to map**. See [Morph voice mapping](docs/morph-mapping.md) for the input catalog, supported outputs and examples.
+
+Physical inputs now bind to a discoverable desktop action registry: joystick keyboard input, movement-to-scroll, cover-to-press buttons, volume and built-in display brightness. Continuous action adapters reuse the same slider runtime. See [desktop action setup and limits](docs/desktop-actions.md).
+
+Optional **EdgeTAM + optical flow** hybrid tracking is available with `--temporal edgetam`. See [setup, launch command and measured limitations](docs/temporal-tracking.md).

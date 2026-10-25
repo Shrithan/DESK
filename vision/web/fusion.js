@@ -4,11 +4,13 @@ const candidates=new Map();
 const cameras={},pairs=[],map=$('map');let running=false,opening=false,generation=0,busy=null,timer=null,pairNumber=0,lastCompleted=null,previewRequest=null,previewLast=0,previewCount=0,previewWindow=0,commonFps=30,analysisWindow=0,analysisCount=0;
 for(const [index,role] of roles.entries()){
  const section=document.createElement('section');section.className='feed';
- section.innerHTML=`<div class="feed-title"><span>${index?'OVERHEAD / X + Y':'SIDE / HEIGHT Z'}</span><span id="state-${role}">Not connected</span></div><div class="feed-picture"><video id="video-${role}" autoplay muted playsinline></video><canvas id="preview-${role}" class="camera-preview"></canvas><canvas id="overlay-${role}"></canvas></div><div class="camera-controls"><select id="camera-${role}" aria-label="Camera ${index+1}"></select><div class="axis-controls"><label><input id="flip-${role}" type="checkbox">Reverse ${index?'X':'Z'} direction</label>${index?'<label><input id="flip-y" type="checkbox">Reverse Y direction</label>':''}<button id="wide-${role}" type="button">Reset zoom</button><label>View<select id="orientation-${role}"><option value="auto">Auto / native portrait</option><option value="raw">Original orientation</option><option value="cw">Portrait clockwise</option><option value="ccw">Portrait counterclockwise</option></select></label></div><p id="camera-info-${role}" class="small">Webcam or iPhone · full camera image</p></div>`;
+ section.innerHTML=`<div class="feed-title"><span>${index?'OVERHEAD / X + Y':'SIDE / HEIGHT Z'}</span><span id="state-${role}">Not connected</span></div><div class="feed-picture"><video id="video-${role}" autoplay muted playsinline></video><canvas id="preview-${role}" class="camera-preview"></canvas><canvas id="overlay-${role}"></canvas></div><div class="camera-controls"><select id="camera-${role}" aria-label="Camera ${index+1}"></select><div class="axis-controls"><label><input id="flip-${role}" type="checkbox">Reverse ${index?'X':'Z'} direction</label>${index?'<label><input id="flip-y" type="checkbox">Reverse Y direction</label>':''}<button id="wide-${role}" type="button">Reset zoom</button><button id="lock-exposure-${role}" type="button">Lock exposure / colour</button><button id="auto-exposure-${role}" type="button">Auto exposure</button><span id="exposure-status-${role}" class="small">Exposure not checked</span><label>View<select id="orientation-${role}"><option value="auto">Auto / native portrait</option><option value="raw">Original orientation</option><option value="cw">Portrait clockwise</option><option value="ccw">Portrait counterclockwise</option></select></label></div><p id="camera-info-${role}" class="small">Webcam or iPhone · full camera image</p></div>`;
  $('feeds').append(section);cameras[role]={video:$(`video-${role}`),canvas:document.createElement('canvas'),overlay:$(`overlay-${role}`),stream:null,result:null,sample:null,acceptedSample:null,inFlight:null,timer:null,preview:$(`preview-${role}`),sequence:0,lastPresented:-1,lastAnalyzed:-1,callback:null,sourceFps:null,fpsStart:null,fpsFrames:0};
  $(`flip-${role}`).addEventListener('change',zero);
  $(`orientation-${role}`).addEventListener('change',()=>{if(running)start();});
  $(`wide-${role}`).addEventListener('click',()=>wideView(role).catch(err=>error(err.message)));
+ $(`lock-exposure-${role}`).addEventListener('click',()=>void cameraExposure(role,true));
+ $(`auto-exposure-${role}`).addEventListener('click',()=>void cameraExposure(role,false));
 }
 function error(message=''){$('error').textContent=message;$('error').hidden=!message;}
 async function api(path,body={},role='front',type='application/json',sample=null){
@@ -18,9 +20,10 @@ async function api(path,body={},role='front',type='application/json',sample=null
 }
 async function inventory(){
  const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'&&!/desk view/i.test(d.label));
+ const camo=devices.find(d=>/camo/i.test(d.label));
  const phones=devices.filter(d=>/iphone|continuity/i.test(d.label)),external=devices.filter(d=>!/macbook|facetime|built.in|iphone|continuity|virtual|camo/i.test(d.label));
  const ordered=[...external,...phones,...devices.filter(d=>!external.includes(d)&&!phones.includes(d))];
- const preferred=[phones[0]||external[0]||ordered[0],external[0]||ordered.find(d=>d.deviceId!==phones[0]?.deviceId)];
+ const preferred=[camo||phones[0]||external[0]||ordered[0],external[0]||ordered.find(d=>d.deviceId!==phones[0]?.deviceId)];
  for(const [index,role] of roles.entries()){const select=$(`camera-${role}`),previous=select.value;select.replaceChildren(...ordered.map((d,i)=>new Option(d.label||`Webcam ${i+1}`,d.deviceId)));if(ordered.some(d=>d.deviceId===previous))select.value=previous;else if(preferred[index])select.value=preferred[index].deviceId;}
  if(ordered.length>1&&$('camera-front').value===$('camera-top').value)$('camera-top').value=(external.find(d=>d.deviceId!==$('camera-front').value)||ordered.find(d=>d.deviceId!==$('camera-front').value)).deviceId;
  return devices;
@@ -45,7 +48,7 @@ function freshPair(list,key){return list.every(c=>c.video.readyState>=2&&c.seque
 function observeFrames(role,g){
  const c=cameras[role];if(!c.video.requestVideoFrameCallback)return;
  const observe=(now,metadata)=>{
-  if(g!==generation)return;
+  if(g!==generation||c.disabled)return;
   c.sequence++;c.mediaTime=metadata.mediaTime;
   if(c.fpsStart===null){c.fpsStart=now;c.fpsFrames=metadata.presentedFrames;}
   if(now-c.fpsStart>=1000){c.sourceFps=(metadata.presentedFrames-c.fpsFrames)*1000/(now-c.fpsStart);c.fpsStart=now;c.fpsFrames=metadata.presentedFrames;}
@@ -87,12 +90,32 @@ function previewLoop(g,now=performance.now()){
 }
 async function matchFrameRates(){
  // Run each source at its own supported rate; a 30 fps overhead must not throttle a 60 fps phone.
- for(const role of roles){
+ for(const role of roles.filter(r=>cameras[r].stream)){
   const c=cameras[role],track=c.stream.getVideoTracks()[0],phone=/iphone|continuity/i.test(track.label);
   const target=Math.min(phone?60:30,track.getCapabilities?.().frameRate?.max||track.getSettings().frameRate||30);
   try{await track.applyConstraints({frameRate:{exact:target}});}catch(_){await track.applyConstraints({frameRate:{ideal:target,max:target}});}
   c.requestedFps=target;
  }
+}
+async function cameraExposure(role,locked){
+ const c=cameras[role],track=c.stream?.getVideoTracks()[0],status=$(`exposure-status-${role}`);
+ if(!track){status.textContent='Start this camera first';return;}
+ if(/camo/i.test(track.label)){status.textContent='Set exposure / focus in Camo Studio';return;}
+ const caps=track.getCapabilities?.()||{};
+ try{
+  if(caps.exposureMode?.includes(locked?'manual':'continuous')){
+   const settings=track.getSettings(),constraints={exposureMode:locked?'manual':'continuous'};
+   if(locked&&Number.isFinite(settings.exposureTime))constraints.exposureTime=settings.exposureTime;
+   if(caps.whiteBalanceMode?.includes(locked?'manual':'continuous')){constraints.whiteBalanceMode=locked?'manual':'continuous';if(locked&&Number.isFinite(settings.colorTemperature))constraints.colorTemperature=settings.colorTemperature;}
+   await track.applyConstraints({advanced:[constraints]});
+   const actual=track.getSettings();
+   if(actual.exposureMode!==constraints.exposureMode)throw new Error('The browser did not verify the exposure mode.');
+   status.textContent=locked?'Exposure locked (browser verified)':'Automatic exposure enabled';
+  }else{
+   const result=await api('/api/camera/exposure',{label:track.label,locked});
+   status.textContent=result.message+` · ${result.exposure_ms} ms · hardware verified`;
+  }
+ }catch(err){status.textContent='Exposure lock unavailable: '+err.message;}
 }
 async function wideView(role){
  const track=cameras[role].stream?.getVideoTracks()[0];
@@ -105,12 +128,36 @@ async function wideView(role){
  zero();
 }
 async function stop(){
+ if(typeof stopRealKeys==='function')void stopRealKeys('Cameras stopped');
  running=false;generation++;clearTimeout(timer);cancelAnimationFrame(previewRequest);
- for(const c of Object.values(cameras)){clearTimeout(c.timer);if(c.callback!==null)c.video.cancelVideoFrameCallback?.(c.callback);c.callback=null;c.stream?.getTracks().forEach(t=>t.stop());c.stream=null;c.video.srcObject=null;}
+ for(const c of Object.values(cameras)){clearTimeout(c.timer);clearTimeout(c.exposureTimer);if(c.callback!==null)c.video.cancelVideoFrameCallback?.(c.callback);c.callback=null;c.stream?.getTracks().forEach(t=>t.stop());c.stream=null;c.video.srcObject=null;}
  await Promise.all(Object.values(cameras).map(async c=>{if(c.inFlight)try{await c.inFlight;}catch(_){}}));
  for(const role of roles){cameras[role].result=null;cameras[role].preview.getContext('2d').clearRect(0,0,cameras[role].preview.width,cameras[role].preview.height);$(`state-${role}`).textContent='Stopped';clearOverlay(role);}
  for(const role of roles)try{await api('/api/reset',{},role);}catch(_){}
  pairs.length=0;candidates.clear();pairNumber=0;if(typeof flatInputs!=='undefined'){flatInputs.clear();if(typeof dismissedFlatInputs!=='undefined')dismissedFlatInputs.clear();$('flat-tracks').replaceChildren();}draw();$('tracks').replaceChildren();$('status').textContent='Stopped';
+}
+function usbPhoneAllowed(status){return status?.verified===true&&status.connected===true&&status.phone_count===1;}
+async function requireUSBPhone(){
+ if(!$('iphone-usb-only')?.checked){$('usb-phone-status').textContent='Wireless and USB Continuity are allowed. macOS chooses the connection.';return;}
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),3500);
+ try{const response=await fetch('/api/iphone/usb',{signal:controller.signal});if(!response.ok)throw new Error('USB verification unavailable');const status=await response.json();
+  $('usb-phone-status').textContent=status.message;
+  if(!usbPhoneAllowed(status))throw new Error(status.message||'Connect one iPhone by USB before starting.');
+ }catch(err){if(err.name==='AbortError')throw new Error('USB verification timed out. Reconnect the iPhone cable.');throw err;}finally{clearTimeout(timeout);}
+}
+let usbPhoneChecking=false;
+setInterval(async()=>{
+ if(!$('iphone-usb-only')?.checked||!running||usbPhoneChecking||!roles.some(r=>/iphone|continuity/i.test(cameras[r].stream?.getVideoTracks()[0]?.label||'')))return;
+ usbPhoneChecking=true;const g=generation;
+ try{await requireUSBPhone();}catch(err){if(running&&g===generation){await stop();error('iPhone USB requirement: '+err.message);}}
+ finally{usbPhoneChecking=false;}
+},2000);
+function cameraConstraints(deviceId,label){
+ const camo=/camo/i.test(label),phone=/iphone|continuity/i.test(label);
+ // Camo owns its output profile. Asking its virtual camera for landscape can
+ // crop a portrait source before our canvas ever receives it.
+ if(camo)return {deviceId:{exact:deviceId},resizeMode:{ideal:'none'},frameRate:{ideal:30,max:30}};
+ return {deviceId:{exact:deviceId},width:{ideal:phone?720:1280},height:{ideal:phone?1280:720},aspectRatio:{ideal:phone?9/16:16/9},resizeMode:{ideal:'none'},frameRate:{ideal:phone?60:30,max:phone?60:30}};
 }
 async function start(){
  if(opening)return;opening=true;$('start').disabled=true;error();await stop();const g=++generation;
@@ -118,12 +165,13 @@ async function start(){
  if(!navigator.mediaDevices?.getUserMedia)throw new Error('Open localhost in Safari or Chrome.');
  let devices=await inventory();
  if(!devices.some(d=>d.label)){
- const temporary=await navigator.mediaDevices.getUserMedia({video:true,audio:false});temporary.getTracks().forEach(t=>t.stop());devices=await inventory();}
- const ids=roles.map(r=>$(`camera-${r}`).value);
- if(!ids[0]||!ids[1]||ids[0]===ids[1])throw new Error('Choose two different camera sources. A webcam and an iPhone can be used together.');
- for(const role of roles){
+ const temporary=await navigator.mediaDevices.getUserMedia({video:$('overhead-only').checked?{deviceId:{exact:$('camera-top').value}}:true,audio:false});temporary.getTracks().forEach(t=>t.stop());devices=await inventory();}
+ const activeRoles=$('overhead-only').checked?['top']:roles,ids=activeRoles.map(r=>$(`camera-${r}`).value);
+ if(ids.some(id=>!id)||(ids.length===2&&ids[0]===ids[1]))throw new Error('Choose different camera sources, or enable overhead-only joystick mode.');
+ for(const role of activeRoles){
  const phone=/iphone|continuity/i.test($(`camera-${role}`).selectedOptions[0]?.text||'');
- const c=cameras[role];c.sequence=0;c.lastPresented=c.lastAnalyzed=-1;c.fpsStart=null;c.sourceFps=null;c.result=null;c.acceptedSample=null;c.stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{deviceId:{exact:$(`camera-${role}`).value},width:{ideal:phone?720:1280},height:{ideal:phone?1280:720},aspectRatio:{ideal:phone?9/16:16/9},resizeMode:{ideal:'none'},frameRate:{ideal:phone?60:30,max:phone?60:30}}});
+ if(phone)await requireUSBPhone();
+ const c=cameras[role];c.disabled=false;c.sequence=0;c.lastPresented=c.lastAnalyzed=-1;c.analyzedMarker=null;c.fpsStart=null;c.sourceFps=null;c.result=null;c.acceptedSample=null;c.stream=await navigator.mediaDevices.getUserMedia({audio:false,video:cameraConstraints($(`camera-${role}`).value,$(`camera-${role}`).selectedOptions[0]?.text||'')});
  if(g!==generation){c.stream.getTracks().forEach(t=>t.stop());return;}
  c.video.srcObject=c.stream;await c.video.play();observeFrames(role,g);const track=c.stream.getVideoTracks()[0],caps=track.getCapabilities?.()||{};
  await wideView(role);
@@ -131,7 +179,8 @@ async function start(){
  track.addEventListener('ended',()=>{if(running&&g===generation)stop();});await api('/api/auto',{enabled:true},role);await api('/api/workspace-multi',{},role);
  }
  await matchFrameRates();
- running=true;analysisWindow=performance.now();analysisCount=0;previewLast=0;previewWindow=performance.now();previewCount=0;previewLoop(g);lastCompleted=null;$('status').textContent='Fast tracking · move new objects briefly in both views';$('start').textContent='Reconnect cameras';roles.forEach(role=>pump(role,g));
+ running=true;for(const role of activeRoles){const c=cameras[role];clearTimeout(c.exposureTimer);$(`exposure-status-${role}`).textContent='Exposure settling · keep hands out briefly';c.exposureTimer=setTimeout(()=>{if(g===generation&&running)void cameraExposure(role,true);},1800);}
+ analysisWindow=performance.now();analysisCount=0;previewLast=0;previewWindow=performance.now();previewCount=0;previewLoop(g);lastCompleted=null;$('status').textContent='Fast tracking · move new objects briefly in both views';$('start').textContent='Reconnect cameras';activeRoles.forEach(role=>pump(role,g));
  }catch(err){await stop();error(err.message);}finally{opening=false;$('start').disabled=false;}
 }
 function objects(role){return cameras[role].result?.objects||[];}
@@ -197,6 +246,7 @@ function associationStep(pair,a,b,now){
  return !!pair.confirmed;
 }
 function metricXY(b){return Array.isArray(b?.table_xy_m)&&b.table_xy_m.every(Number.isFinite)?b.table_xy_m:null;}
+function formatSpatialPosition(pair){return pair.position.map((v,i)=>`${['X','Y','Z'][i]} ${v.toFixed(1)}${pair.metric&&i<2?' cm':'%'}`).join('   ')+(pair.metric?' · table X/Y; Z relative':'');}
 function spatialValues(a,b){
  const side=cameras.front.canvas,top=cameras.top.canvas,xy=metricXY(b);
  // Calibrated overhead camera: absolute table X/Y in metres (shown in cm); Z stays relative to the side view.
@@ -253,8 +303,9 @@ function fuse(){
 function clearOverlay(role){const canvas=cameras[role].overlay;canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);}
 function trackVelocities(c,result,sample){
  // px per ms for each object, from consecutive results (for drawing boxes where the object is now).
- c.velocity=c.velocity||{};const prev=c.lastCenters||{},next={};
+ c.velocity=c.velocity||{};c.boxExtents={};const prev=c.lastCenters||{},next={};
  for(const o of result?.objects||[]){const id=o.observation.object_id,m=o.motion;if(!m||o.observation.tracking_state!=='tracked')continue;next[id]=[m.center_px[0],m.center_px[1],sample];
+  const box=o.observation.bbox_xyxy;if(box)c.boxExtents[id]=Math.min(box[2]-box[0],box[3]-box[1]);
   const q=prev[id];if(q&&sample>q[2]&&sample-q[2]<400){const v=[(m.center_px[0]-q[0])/(sample-q[2]),(m.center_px[1]-q[1])/(sample-q[2])],old=c.velocity[id];c.velocity[id]=old?[.6*v[0]+.4*old[0],.6*v[1]+.4*old[1]]:v;}}
  for(const id of Object.keys(c.velocity))if(!next[id])delete c.velocity[id];
  c.lastCenters=next;
@@ -265,13 +316,17 @@ function displayBox(b){
  const pw=Math.max(6,.08*(b[2]-b[0])),ph=Math.max(6,.08*(b[3]-b[1]));return [b[0]-pw,b[1]-ph,b[2]+pw,b[3]+ph];
 }
 function boxLead(c,id,now){
- // The result describes a frame that is already old; lead the box by speed x age (capped) so it
- // sits on the live video instead of trailing a fast object.
- const v=c.velocity?.[id];if(!v||!now||!c.acceptedSample)return [0,0];
- const age=Math.max(0,Math.min(150,now-c.acceptedSample));return [v[0]*age,v[1]*age];
+ // Small visual latency compensation only. A reversal or a noisy centroid must
+ // never project the box several object widths into empty background.
+ const v=c.velocity?.[id],extent=c.boxExtents?.[id];if(!v||!extent||!now||!c.acceptedSample)return [0,0];
+ const age=now-c.acceptedSample;if(age<0||age>160)return [0,0];
+ const lead=v.map(value=>value*Math.min(60,age)),distance=Math.hypot(...lead),limit=Math.min(16,.2*extent);
+ return distance>limit?lead.map(value=>value*limit/distance):lead;
 }
 function overlay(role,now=null){const c=cameras[role],canvas=c.overlay;if(canvas.width!==c.canvas.width)canvas.width=c.canvas.width;if(canvas.height!==c.canvas.height)canvas.height=c.canvas.height;const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);
- for(const o of objects(role)){const obs=o.observation;if(!obs.bbox_xyxy||obs.tracking_state==='lost')continue;const pair=pairs.find(p=>p[role]===obs.object_id),color=pair?colors[(pair.number-1)%colors.length]:'#aab8aa';ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2;ctx.setLineDash(obs.tracking_state==='predicted'?[6,5]:[]);const [lx,ly]=boxLead(c,obs.object_id,now),[x,y,x2,y2]=displayBox(obs.bbox_xyxy).map((v,i)=>v+(i%2?ly:lx));ctx.strokeRect(x,y,x2-x,y2-y);ctx.font='15px sans-serif';ctx.fillText(typeof flatInputs!=='undefined'&&flatInputs.has(obs.object_id)?`2D input #${o.number}`:pair?`Object ${pair.number}`:`#${o.number} ${o.object_label} · unpaired`,x,Math.max(16,y-5));}
+ const stale=now!==null&&c.acceptedSample&&now-c.acceptedSample>220;
+ if(stale)return;
+ for(const o of objects(role)){const obs=o.observation;if(!obs.bbox_xyxy||obs.tracking_state!=='tracked')continue;const pair=pairs.find(p=>p[role]===obs.object_id),color=pair?colors[(pair.number-1)%colors.length]:'#aab8aa';ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2;ctx.setLineDash(obs.tracking_state==='predicted'?[6,5]:[]);const [lx,ly]=boxLead(c,obs.object_id,now),[x,y,x2,y2]=displayBox(obs.bbox_xyxy).map((v,i)=>v+(i%2?ly:lx));ctx.strokeRect(x,y,x2-x,y2-y);ctx.font='15px sans-serif';ctx.fillText(typeof flatInputs!=='undefined'&&flatInputs.has(obs.object_id)?`2D input #${o.number}`:pair?`Object ${pair.number}`:`#${o.number} ${o.object_label} · unpaired`,x,Math.max(16,y-5));}
  // Draw measured side silhouette centerlines and estimated overhead joystick pivots.
  for(const o of objects(role))if(o.observation.tracking_state==='tracked'&&o.skeleton){
   const {base_px:base,top_px:top}=o.skeleton;ctx.strokeStyle='#f2dd83';ctx.fillStyle='#f2dd83';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(...base);ctx.lineTo(...top);ctx.stroke();for(const point of [base,top]){ctx.beginPath();ctx.arc(...point,5,0,Math.PI*2);ctx.fill();}ctx.font='12px sans-serif';ctx.fillText('base pivot',base[0]+7,base[1]);ctx.fillText('top',top[0]+7,top[1]);
@@ -279,27 +334,35 @@ function overlay(role,now=null){const c=cameras[role],canvas=c.overlay;if(canvas
  if(role==='top'&&typeof flatInputs!=='undefined')for(const [id,input] of flatInputs){const item=objects(role).find(o=>o.observation.object_id===id);if(!input.pivot||!input.origin||!item?.motion||item.observation.tracking_state!=='tracked')continue;
   const base=[input.origin[0]*canvas.width,(1-input.origin[1])*canvas.height],top=item.motion.center_px;ctx.strokeStyle='#9dcfff';ctx.fillStyle='#9dcfff';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(...base);ctx.lineTo(...top);ctx.stroke();for(const point of [base,top]){ctx.beginPath();ctx.arc(...point,5,0,Math.PI*2);ctx.fill();}ctx.font='12px sans-serif';ctx.fillText('saved base',base[0]+7,base[1]);ctx.fillText('top / control',top[0]+7,top[1]);
  }
+ if(role==='top'&&typeof actionRegion!=='undefined'&&actionRegion){const [x,y,x2,y2]=actionRegion;ctx.strokeStyle='#f2dd83';ctx.lineWidth=3;ctx.strokeRect(x,y,x2-x,y2-y);ctx.fillStyle='#f2dd83';ctx.fillText('Cover button area',x,Math.max(16,y-5));}
+ if(role==='top'&&canvas.dataset.region){const [x,y,x2,y2]=JSON.parse(canvas.dataset.region);ctx.strokeStyle='#c5ef9b';ctx.lineWidth=3;ctx.strokeRect(x*canvas.width,y*canvas.height,(x2-x)*canvas.width,(y2-y)*canvas.height);}
  $(`state-${role}`).textContent=`${objects(role).filter(o=>o.observation.tracking_state==='tracked').length} objects tracked`;
 }
 function animateOverlays(){if(running){const now=performance.timeOrigin+performance.now();for(const role of roles)if(cameras[role].result)overlay(role,now);}requestAnimationFrame(animateOverlays);}
 if(typeof requestAnimationFrame==='function')requestAnimationFrame(animateOverlays);
+function cameraFrameMarker(c){
+ const decoded=c.video.getVideoPlaybackQuality?.().totalVideoFrames;
+ return Number.isFinite(decoded)&&decoded>0?{kind:'decoded',value:decoded}:{kind:'media',value:c.video.currentTime};
+}
 async function pump(role,g){
- const c=cameras[role];
- if(!running||g!==generation)return;
- if(document.hidden||c.video.readyState<2||c.sequence<=c.lastAnalyzed){c.timer=setTimeout(()=>pump(role,g),5);return;}
+ const c=cameras[role],marker=cameraFrameMarker(c),previous=c.analyzedMarker;
+ const minimum=marker.kind==='media'?.95/(c.requestedFps||30):1;
+ const newFrame=!previous||previous.kind!==marker.kind||marker.value-previous.value>=minimum;
+ if(!running||g!==generation||c.disabled)return;
+ if(c.video.readyState<2||!newFrame){c.timer=setTimeout(()=>pump(role,g),5);return;}
  const started=performance.now(),sample=performance.timeOrigin+started;
- paintFrame(role,c.canvas,640);c.lastAnalyzed=c.sequence;
+ paintFrame(role,c.canvas,640);c.analyzedMarker=marker;c.lastAnalyzed=c.video.currentTime;
  c.inFlight=(async()=>{
   const blob=await new Promise(resolve=>c.canvas.toBlob(resolve,'image/jpeg',.85));if(!blob)throw new Error('Camera frame unavailable');
   const result=await api('/api/frame',blob,role,'image/jpeg',sample);
-  if(g!==generation||!running)return;
+  if(g!==generation||!running||c.disabled)return;
   trackVelocities(c,result,sample);c.result=result;c.sample=c.acceptedSample=sample;c.completed=(c.completed||0)+1;
-  fuse();overlay(role);$('model-info').textContent=result.detector;
+  fuse();if(typeof sendRealKeys==='function')void sendRealKeys();overlay(role);$('model-info').textContent=result.detector;
   const now=performance.now();if(now-analysisWindow>=1000){$('stats').textContent=`Tracking updates/sec: side ${((cameras.front.completed||0)*1000/(now-analysisWindow)).toFixed(1)} · overhead ${((cameras.top.completed||0)*1000/(now-analysisWindow)).toFixed(1)} · independent fresh-frame processing; sensor timing unverified`;analysisWindow=now;cameras.front.completed=cameras.top.completed=0;}
-  error(result.detector_error?`Detector error (${role}): ${result.detector_error}. Fell back to in-request detection; see Terminal.`:'');
+  error(result.detector_error?`Tracking error (${role}): ${result.detector_error}. See Terminal for fallback details.`:'');
  })();
  try{await c.inFlight;}catch(err){if(g===generation){error(err.message);c.result=null;c.acceptedSample=null;for(const p of pairs){p.position=null;p.prediction=null;p.visual=null;p.points.push(null);}clearOverlay(role);draw();}}finally{c.inFlight=null;}
- if(running&&g===generation)c.timer=setTimeout(()=>pump(role,g),0);
+ if(running&&g===generation&&!c.disabled)c.timer=setTimeout(()=>pump(role,g),0);
 }
 // Interactive orbit view for the 3D map: drag to rotate, wheel/pinch to zoom, double-click to reset.
 // The default angles reproduce the original fixed isometric view.
@@ -336,7 +399,7 @@ function draw(){
  for(const z of [lo,hi])for(const y of [lo,hi])line([lo,y,z],[hi,y,z],'#415449');
  for(const x of [lo,hi])for(const y of [lo,hi])line([x,y,lo],[x,y,hi],'#415449');
  for(const [label,p,color] of [['X',[hi,0,0],'#f4ba8a'],['Y',[0,hi,0],'#c5ef9b'],['Z',[0,0,hi],'#9dcaeb']]){line([0,0,0],p,color);const q=project(p);ctx.fillStyle=color;ctx.fillText(label,q[0]+5,q[1]-5);}
- ctx.fillStyle='#aab8aa';ctx.fillText('Relative 3D movement · uncalibrated · % of each image axis',16,22);
+ ctx.fillStyle='#aab8aa';ctx.fillText(pairs.some(p=>p.metric)?'Table X/Y: cm · Z: relative image % · height not measured':'Relative 3D movement · uncalibrated · % of each image axis',16,22);
  for(const p of pairs){const color=colors[(p.number-1)%colors.length];ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();let pen=false;for(const point of p.points){if(!point){pen=false;continue;}const q=project(point);if(pen)ctx.lineTo(...q);else ctx.moveTo(...q);pen=true;}ctx.stroke();if(p.position&&p.visual){const q=project(p.visual);ctx.fillStyle=color;ctx.beginPath();ctx.arc(...q,6,0,Math.PI*2);if(p.visualPredicted){ctx.setLineDash([3,3]);ctx.stroke();ctx.setLineDash([]);}else ctx.fill();ctx.fillText(`Object ${p.number}${p.visualPredicted?' · predicted':''}`,q[0]+10,q[1]-10);
  const item=find('top',p.top),yaw=item?.orientation?.rotation_degrees;
  ctx.strokeStyle=color;ctx.lineWidth=1.5;const qx=q[0],qy=q[1];ctx.strokeRect(qx-9,qy-19,18,19);ctx.beginPath();ctx.ellipse(qx,qy-19,9,4,0,0,Math.PI*2);ctx.stroke();if(yaw!=null){const a=yaw*Math.PI/180;ctx.beginPath();ctx.moveTo(qx,qy-19);ctx.lineTo(qx+Math.cos(a)*15,qy-19+Math.sin(a)*6);ctx.stroke();}}}
@@ -347,7 +410,25 @@ $('pair').addEventListener('click',()=>{const a=find('front',$('pair-front').val
 $('flip-y').addEventListener('change',zero);
 $('refresh-cameras').addEventListener('click',()=>inventory().catch(err=>error(err.message)));
 $('start').addEventListener('click',start);$('stop').addEventListener('click',stop);$('zero').addEventListener('click',zero);
-$('reset').addEventListener('click',async()=>{const resume=running;running=false;for(const c of Object.values(cameras))clearTimeout(c.timer);await Promise.all(Object.values(cameras).map(async c=>{if(c.inFlight)try{await c.inFlight;}catch(_){}}));for(const role of roles){await api('/api/clear',{},role);cameras[role].result=null;}pairs.length=0;candidates.clear();pairNumber=0;if(typeof flatInputs!=='undefined'){flatInputs.clear();if(typeof dismissedFlatInputs!=='undefined')dismissedFlatInputs.clear();$('flat-tracks').replaceChildren();}$('tracks').replaceChildren();draw();if(resume){running=true;previewLoop(generation);roles.forEach(role=>pump(role,generation));}});
+$('reset').addEventListener('click',async()=>{const resume=running;running=false;for(const c of Object.values(cameras))clearTimeout(c.timer);await Promise.all(Object.values(cameras).map(async c=>{if(c.inFlight)try{await c.inFlight;}catch(_){}}));for(const role of roles){await api('/api/clear',{},role);cameras[role].result=null;}pairs.length=0;candidates.clear();pairNumber=0;if(typeof flatInputs!=='undefined'){flatInputs.clear();if(typeof dismissedFlatInputs!=='undefined')dismissedFlatInputs.clear();$('flat-tracks').replaceChildren();}$('tracks').replaceChildren();draw();if(resume){running=true;previewLoop(generation);roles.filter(role=>cameras[role].stream).forEach(role=>pump(role,generation));}});
 new ResizeObserver(draw).observe(map.parentElement);
 window.addEventListener('pagehide',()=>{running=false;generation++;clearTimeout(timer);cancelAnimationFrame(previewRequest);for(const c of Object.values(cameras)){clearTimeout(c.timer);c.stream?.getTracks().forEach(t=>t.stop());}});
 if(navigator.mediaDevices){inventory().catch(()=>{});navigator.mediaDevices.addEventListener('devicechange',()=>inventory().catch(()=>{}));}
+
+function showCameraMode(){const single=$('overhead-only').checked;$('feeds').children[0].hidden=single;$('feeds').classList.toggle('single-camera',single);$('start').textContent=single?'Start overhead webcam':'Start both cameras';}
+async function useOverheadJoystick(){
+ $('overhead-only').checked=true;sessionStorage.setItem('overhead-only','1');showCameraMode();
+ const c=cameras.front;c.disabled=true;clearTimeout(c.timer);clearTimeout(c.exposureTimer);
+ if(c.callback!==null)c.video.cancelVideoFrameCallback?.(c.callback);c.callback=null;
+ c.stream?.getTracks().forEach(track=>track.stop());c.stream=null;c.video.srcObject=null;
+ c.result=null;c.sample=c.acceptedSample=null;c.velocity={};c.lastCenters={};
+ c.preview.getContext('2d').clearRect(0,0,c.preview.width,c.preview.height);clearOverlay('front');
+ $('state-front').textContent='Off · overhead joystick mode';pairs.length=0;candidates.clear();
+ // Keep the overhead stream, IDs, slider bindings and joystick calibration alive.
+ try{await api('/api/reset',{},'front');}catch(err){error(err.message);}
+}
+$('overhead-only').addEventListener('change',()=>{sessionStorage.setItem('overhead-only',$('overhead-only').checked?'1':'0');if($('overhead-only').checked)void useOverheadJoystick();else{if(running)void stop();showCameraMode();}});
+if(sessionStorage.getItem('overhead-only')==='1')$('overhead-only').checked=true;
+showCameraMode();
+
+$('iphone-usb-only').addEventListener('change',()=>{if(running)void stop();$('usb-phone-status').textContent=$('iphone-usb-only').checked?'USB required for iPhone · reconnect cameras after connecting a trusted data cable.':'Wireless and USB Continuity are allowed. macOS chooses the connection.';});

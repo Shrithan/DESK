@@ -4,7 +4,7 @@ if(location.pathname.endsWith('/fusion.html')){$('start').disabled=true;$('start
 const studioCards=new Map();
 function registryItems(){
  const now=performance.timeOrigin+performance.now(),overhead=objects('top');
- const inputs=[...flatInputs].map(([id,input])=>{const item=overhead.find(o=>o.observation.object_id===id);return {key:'input:'+id,id,type:input.mode==='xy'?'joystick':'slider',name:input.label,input,item,active:input.mode==='xy'?!!input.controlActive:!!(item?.motion&&item.observation.tracking_state==='tracked'&&now-cameras.top.acceptedSample<250),yaw:input.filteredYaw??item?.orientation?.rotation_degrees??null};});
+ const inputs=[...flatInputs].map(([id,input])=>{const item=overhead.find(o=>o.observation.object_id===id);return {key:'input:'+id,id,type:input.controlKind==='cover_button'?'button':input.mode==='xy'?'joystick':'slider',name:input.label,input,item,active:input.controlKind==='cover_button'?['ready','covering','pressed'].includes(input.actionState?.phase):input.mode==='xy'?!!input.controlActive:!!(item?.motion&&item.observation.tracking_state==='tracked'&&now-cameras.top.acceptedSample<250),yaw:input.filteredYaw??item?.orientation?.rotation_degrees??null};});
  const spatial=pairs.map(pair=>({key:'pair:'+pair.number,type:'object',name:`Object ${pair.number} · ${pair.label}`,pair,active:!!(pair.position&&pair.visual),yaw:find('top',pair.top)?.orientation?.rotation_degrees??null}));
  const used=new Set([...flatInputs.keys(),...pairs.map(p=>p.top)]);
  const possible=overhead.filter(item=>!used.has(item.observation.object_id)&&item.observation.tracking_state==='tracked').map(item=>({key:'candidate:'+item.observation.object_id,id:item.observation.object_id,item,type:'candidate',name:`${item.object_label} #${item.number}`,active:true,yaw:item.orientation?.rotation_degrees??null}));
@@ -17,13 +17,14 @@ function createStudioCard(key){
  studioCards.set(key,card);$('control-registry').append(el);return card;
 }
 function action(card,label,fn,disabled=false){if(!card.rebuild){const existing=card.actions.children[card.actionIndex++];if(existing)existing.disabled=disabled;return;}card.actionIndex++;const b=document.createElement('button');b.textContent=label;b.disabled=disabled;b.addEventListener('click',()=>fn(card.item));card.actions.append(b);}
-function assignInput(entry,mode){flatInputs.set(entry.id,{mode,pivot:mode==='xy',label:entry.name,range:null});const p=pairs.find(p=>p.top===entry.id);if(p)pairs.splice(pairs.indexOf(p),1);candidates.clear();renderFlatInputs();updateStudio();}
+function assignInput(entry,mode){if(mode==='xy'&&typeof useOverheadJoystick==='function')void useOverheadJoystick();flatInputs.set(entry.id,{mode,pivot:mode==='xy',label:entry.name,range:null});const p=pairs.find(p=>p.top===entry.id);if(p)pairs.splice(pairs.indexOf(p),1);candidates.clear();renderFlatInputs();updateStudio();}
 function updateStudio(){
  const items=registryItems(),keys=new Set(items.map(x=>x.key));
  for(const [key,card] of studioCards)if(!keys.has(key)){card.el.remove();studioCards.delete(key);}
  $('count-sliders').textContent=items.filter(x=>x.type==='slider').length;
  $('count-joysticks').textContent=items.filter(x=>x.type==='joystick').length;
  $('count-objects').textContent=items.filter(x=>x.type==='object').length;
+ if($('count-buttons'))$('count-buttons').textContent=items.filter(x=>x.type==='button').length;
  $('count-active').textContent=items.filter(x=>x.active&&x.type!=='candidate').length;
  $('studio-stop').disabled=!running;
  if(!running)$('model-info').textContent=studioDemo?'Simulated layout preview · no vision model running':'YOLOE Extra Large · offline';
@@ -32,9 +33,10 @@ function updateStudio(){
  for(const entry of items){
   const card=studioCards.get(entry.key)||createStudioCard(entry.key);card.item=entry;
   card.el.hidden=studioFilter!=='all'&&entry.type!==studioFilter;
-  card.type.textContent={slider:'LINEAR INPUT',joystick:'JOYSTICK / 2D INPUT',object:'SPATIAL OBJECT',candidate:'AVAILABLE OVERHEAD TRACK'}[entry.type];
+  card.type.textContent={button:'COVER BUTTON',slider:'LINEAR INPUT',joystick:'JOYSTICK / 2D INPUT',object:'SPATIAL OBJECT',candidate:'AVAILABLE OVERHEAD TRACK'}[entry.type];
   card.state.textContent=entry.active?(entry.input?.bridging?'Brief gap · easing':'Active'):running?'Waiting for object':'Offline';card.state.className='card-state '+(entry.active?'active':'');
   card.title.textContent=entry.name;
+  if(entry.input?.poseMode&&!entry.active)card.state.textContent=entry.input.poseCalibration?.phase==='ready'?'Waiting for can':'Calibrating upright / directions';
   const keyPanel=card.el.querySelector('.key-display');keyPanel.hidden=entry.type!=='joystick';
   for(const key of keyPanel.querySelectorAll('[data-key]')){const down=!!(entry.active&&entry.input?.keys?.[key.dataset.key]);key.classList.toggle('pressed',down);key.setAttribute('aria-label',`${key.dataset.key} ${down?'pressed':'released'}`);}
   card.rotation.textContent=entry.yaw!==null&&entry.active?`YAW / ROTATION  ${entry.yaw.toFixed(1)}° CW`:'YAW / ROTATION  —  Needs visible texture or a mark';
@@ -43,15 +45,28 @@ function updateStudio(){
   const ctx=card.control.getContext('2d'),w=260,h=200;ctx.clearRect(0,0,w,h);
   ctx.fillStyle='#101a1c';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#2b4447';ctx.lineWidth=1;
   card.rebuild=card.kind!==entry.type;card.actionIndex=0;if(card.rebuild)card.actions.replaceChildren();card.kind=entry.type;
-  if(entry.type==='joystick'){
+  if(entry.type==='button'){
+   const state=entry.input.actionState||{},pressed=state.phase==='pressed';
+   ctx.fillStyle=pressed?'#f2dd83':'#344037';ctx.beginPath();ctx.arc(130,100,65,0,Math.PI*2);ctx.fill();
+   ctx.fillStyle=pressed?'#101512':'#edf2e9';ctx.font='18px sans-serif';ctx.textAlign='center';ctx.fillText(pressed?'PRESSED':'COVER',130,106);ctx.textAlign='start';
+   card.values.textContent=`${state.phase||'waiting'} · ${state.presses||0} presses`;
+   card.rotation.textContent='Hand-confirmed cover → one key press. Uncover the stationary target to reset.';
+   action(card,'Re-arm / learn clear view',()=>void armRealKeys(entry.id).catch(err=>keyStatus(err.message)));
+  }else if(entry.type==='joystick'){
    const i=entry.input,value=i.current,stick=i.joystick;
    ctx.beginPath();ctx.arc(130,100,74,0,Math.PI*2);ctx.moveTo(45,100);ctx.lineTo(215,100);ctx.moveTo(130,15);ctx.lineTo(130,185);ctx.stroke();
    if(entry.active&&stick){const x=130+stick.x*74,y=100-stick.y*74;ctx.strokeStyle='#a9e9cf';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(130,100);ctx.lineTo(x,y);ctx.stroke();ctx.fillStyle='#a9e9cf';ctx.beginPath();ctx.arc(x,y,12,0,Math.PI*2);ctx.fill();}
    if(yaw!==null){const a=(yaw-90)*Math.PI/180;ctx.strokeStyle='#9dcfff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(130,100,87,-Math.PI/2,a,a< -Math.PI/2);ctx.stroke();ctx.fillStyle='#9dcfff';ctx.beginPath();ctx.arc(130+Math.cos(a)*87,100+Math.sin(a)*87,4,0,Math.PI*2);ctx.fill();}
    card.values.textContent=entry.active&&stick?`X ${stick.x.toFixed(2)}     Y ${stick.y.toFixed(2)}${stick.direction!=null?' · stick heading '+stick.direction.toFixed(0)+'°':''}`:'X —     Y —';
    if(i.pivot){const sides=objects('front').filter(o=>o.skeleton&&compatible(o.object_label,entry.item?.object_label||'can'));const lean=sides.length===1?sides[0].skeleton.projected_lean_degrees:null;card.rotation.textContent=`BASE → TOP PIVOT${lean!=null?' · side lean '+lean.toFixed(1)+'°':''} · ${yaw!=null?'twist '+yaw.toFixed(1)+'°':'twist not visible'}`;}
-   action(card,'Use pivot / WASD',e=>{e.input.pivot=true;if(e.input.current)e.input.origin=[e.input.current.x,e.input.current.y];e.input.sideId=null;e.input.continuity={};e.input.keys=stickKeys(null,{},false);renderFlatInputs();});
-   action(card,'Center & zero yaw',async e=>{if(e.input.current)e.input.origin=[e.input.current.x,e.input.current.y];if(studioDemo)e.input.demoYawZero=e.item.orientation?.rotation_degrees||0;else try{await api('/api/rotation/reset',{object_id:e.id},'top');}catch(err){error(err.message);}e.input.sideId=null;e.input.continuity={};e.input.yawFilter=null;e.input.yawStamp=null;renderFlatInputs();},!entry.active);
+   if(i.poseMode)card.rotation.textContent=`${i.calibrationStatus||'Calibrate upright'} · ${yaw!=null?'twist '+yaw.toFixed(1)+'°':'twist unavailable'}`;
+   const canPose=i.pivot&&['can','bottle','cup'].includes(entry.item?.object_label)&&!studioDemo;
+   const visible=!!entry.item?.control_features&&entry.item.observation.tracking_state==='tracked';
+   action(card,'Calibrate upright (1s)',e=>{beginStickNeutral(e.input);renderFlatInputs();},!canPose||!visible);
+   action(card,'Learn W',e=>{beginStickDirection(e.input,'W');renderFlatInputs();},!canPose||!i.neutralPose||!visible||i.poseCalibration?.phase!=='ready');
+   action(card,'Learn D',e=>{beginStickDirection(e.input,'D');renderFlatInputs();},!canPose||!i.neutralPose||!i.directionBasis?.W||!visible||i.poseCalibration?.phase!=='ready');
+   action(card,'Use pivot / WASD',e=>{e.input.pivot=true;if(e.input.current)e.input.origin=[e.input.current.x,e.input.current.y];if(e.input.poseMode)beginStickNeutral(e.input);e.input.sideId=null;e.input.continuity={};e.input.keys=stickKeys(null,{},false);renderFlatInputs();});
+   action(card,'Center & zero yaw',async e=>{if(e.input.current)e.input.origin=[e.input.current.x,e.input.current.y];if(studioDemo)e.input.demoYawZero=e.item.orientation?.rotation_degrees||0;else try{await api('/api/rotation/reset',{object_id:e.id},'top');}catch(err){error(err.message);}if(e.input.poseMode)beginStickNeutral(e.input);e.input.sideId=null;e.input.continuity={};e.input.yawFilter=null;e.input.yawStamp=null;renderFlatInputs();},!entry.active);
    action(card,'Make slider',e=>assignInput(e,'x'));
   }else if(entry.type==='slider'){
    const value=entry.input.current?.value;ctx.strokeStyle='#3c4546';ctx.lineWidth=10;ctx.beginPath();ctx.moveTo(25,100);ctx.lineTo(235,100);ctx.stroke();
@@ -63,7 +78,7 @@ function updateStudio(){
    action(card,'Make joystick',e=>assignInput(e,'xy'));
   }else if(entry.type==='object'){
    drawObjectProxy(card.control,{kind:'bottle',yaw,active:entry.active,color:colors[(entry.pair.number-1)%colors.length]});
-   card.values.textContent=entry.active?entry.pair.position.map((v,i)=>`${['X','Y','Z'][i]} ${v.toFixed(1)}%`).join('   '):'Waiting for both camera views';
+   card.values.textContent=entry.active?formatSpatialPosition(entry.pair):'Waiting for both camera views';
    action(card,'Use as joystick',e=>assignInput({id:e.pair.top,name:e.name},'xy'));
    action(card,'Unpair',e=>{pairs.splice(pairs.indexOf(e.pair),1);candidates.clear();updateStudio();});
   }else{
@@ -71,7 +86,7 @@ function updateStudio(){
    card.values.textContent='Choose how this object behaves';
    action(card,'Add joystick',e=>assignInput(e,'xy'));action(card,'Add slider',e=>assignInput(e,'x'));
   }
-  if(entry.type==='joystick'||entry.type==='slider')action(card,'Remove',e=>{flatInputs.delete(e.id);dismissedFlatInputs.add(e.id);updateStudio();});
+  if(['joystick','slider','button'].includes(entry.type))action(card,'Remove',e=>{flatInputs.delete(e.id);dismissedFlatInputs.add(e.id);updateStudio();});
  }
  let empty=$('registry-empty');if(!empty){empty=document.createElement('div');empty.id='registry-empty';empty.className='registry-empty';$('control-registry').append(empty);}
  empty.hidden=items.some(e=>studioFilter==='all'||e.type===studioFilter);

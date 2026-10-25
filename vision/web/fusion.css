@@ -8,3 +8,17 @@
 .key-display{text-align:center;margin:12px 0 16px}.key-display kbd{display:inline-grid;place-items:center;width:38px;height:36px;margin:3px;border:1px solid #45606b;border-bottom:3px solid #45606b;border-radius:7px;background:#14222a;color:#96aeb8;font:600 14px ui-monospace,monospace;transition:background .08s}.key-display kbd.pressed{background:#a9e9cf;color:#12231a;border-color:#bafee1;box-shadow:0 0 18px #a9e9cf40}
 
 .voice-panel{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:18px 22px;margin:18px 0;border:1px solid #2b4447;border-radius:16px;background:#101a1c}.voice-panel>div{flex:1;min-width:220px}.voice-panel p{margin:5px 0}.voice-panel #voice-status{flex-basis:100%}
+
+.command-panel{padding:24px;margin:20px 0;border:1px solid #436866;border-radius:18px;background:#101d23}.command-panel h2{margin:6px 0}.command-panel textarea{display:block;width:100%;box-sizing:border-box;margin-top:8px;background:#091317;border:1px solid #456763;border-radius:8px;color:#dcf2ec;padding:12px;font:16px monospace}.command-panel .danger{background:#6b2833;color:#ffe0e2;border-color:#a84e5c}.command-panel .is-armed{color:#ffc178;font-weight:700}
+
+.feeds.single-camera{grid-template-columns:minmax(0,1fr)}.feed[hidden]{display:none}
+#morph-catalog{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:320px;overflow:auto;color:#bbcfbb}#morph-active{color:#d0f2a4;overflow-wrap:anywhere}
+
+#action-test{max-height:120px;overflow:auto;border:1px solid #344037;border-radius:8px;padding:12px;max-width:700px}#action-test:focus{outline:2px solid #c5ef9b}.scroll-test-content{line-height:2.5;padding-bottom:30px}#action-status{color:#c5ef9b}#action-status.is-pressed{color:#f2dd83;background:#344037;padding:12px;border-radius:8px}#command-text{min-width:280px;max-width:100%;padding:12px;background:#101512;color:#edf2e9;border:1px solid #344037;border-radius:7px}.registering-region{cursor:crosshair;touch-action:none}
+
+/* Keep both complete camera images visible together in the desktop side panel. */
+.camera-drawer .feeds:not(.single-camera){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
+.camera-drawer .feeds:not(.single-camera) .feed-picture{width:100%!important;height:clamp(180px,38vh,340px);max-height:none;aspect-ratio:auto!important}
+.camera-drawer .feeds:not(.single-camera) .camera-controls{padding:10px}.camera-drawer .feeds:not(.single-camera) .axis-controls{gap:6px}.camera-drawer .feeds:not(.single-camera) .feed-title{padding:10px;font-size:10px}.camera-drawer .feeds:not(.single-camera) select{max-width:100%}
+
+.camera-drawer .feeds:not(.single-camera) .feed-picture{height:clamp(260px,52vh,520px)}

@@ -20,6 +20,51 @@ def overlap(a,b):
     return intersection/max(1,(x2-x)*(y2-y)+(u2-u)*(v2-v)-intersection)
 
 
+def align_detection(detection, source, current):
+    """Move a delayed model mask using observed pixels, never predicted track drift.
+
+    Return None if the original object cannot be located confidently in the new
+    frame. Reversals must not inherit a stale constant-velocity displacement.
+    """
+    if source.shape != current.shape:
+        return None
+    old = cv2.cvtColor(source, cv2.COLOR_BGR2GRAY)
+    new = cv2.cvtColor(current, cv2.COLOR_BGR2GRAY)
+    mask = detection['mask']
+    points = cv2.goodFeaturesToTrack(old, 80, .01, 4, mask=mask)
+    if points is None or len(points) < 6:
+        # A stationary, textureless silhouette can still be a valid observation.
+        selected = mask > 0
+        delta = new.astype(float)-old.astype(float)
+        if selected.any() and np.median(np.abs(delta[selected])) < 4:
+            return detection
+        return None
+    moved, status, _ = cv2.calcOpticalFlowPyrLK(old,new,points,None,winSize=(31,31),maxLevel=4)
+    if moved is None:
+        return None
+    back, reverse, _ = cv2.calcOpticalFlowPyrLK(new,old,moved,None,winSize=(31,31),maxLevel=4)
+    if back is None:
+        return None
+    valid = (status.ravel()==1)&(reverse.ravel()==1)&(np.linalg.norm(back-points,axis=2).ravel()<2)
+    if valid.sum() < max(6,.4*len(points)):
+        return None
+    transform, inliers = cv2.estimateAffinePartial2D(points[valid],moved[valid],method=cv2.RANSAC,ransacReprojThreshold=2.5)
+    if transform is None or inliers.sum() < max(6,.6*valid.sum()):
+        return None
+    scale = np.hypot(transform[0,0],transform[1,0])
+    if not .7 <= scale <= 1.4:
+        return None
+    h,w = current.shape[:2]
+    aligned = cv2.warpAffine(mask,transform,(w,h),flags=cv2.INTER_NEAREST)
+    ys,xs = np.nonzero(aligned)
+    if len(xs)<48:
+        return None
+    contours,_=cv2.findContours(aligned.astype(np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+    contour=cv2.approxPolyDP(max(contours,key=cv2.contourArea),2.,True).reshape(-1,2)
+    return dict(detection,mask=aligned,bbox=[int(xs.min()),int(ys.min()),int(xs.max()+1),int(ys.max()+1)],
+                center=[float(xs.mean()),float(ys.mean())],contour=contour.tolist())
+
+
 def foreground_containers(detections, shape, previous_bbox=None, *, overhead=False):
     """Single-can/bottle experiment: foreground size is a selection prior, not depth.
 

@@ -17,8 +17,12 @@ step(700,16,50,16,50);                        // back to the real track: accepte
 assert.equal(p.state,'tracked');assert.ok(Math.abs(p.position[0]-before[0])<20,'glitch never reached the map');
 step(800,60,50,60,50);step(900,61,50,61,50);  // a real fast move: first held, second agreeing sample accepted
 assert.equal(p.state,'tracked');assert.ok(p.position[0]>40,'real fast moves still get through within one update');
-// Box lead: a box result 100 ms old on an object moving 0.5 px/ms is drawn 50 px ahead.
-const c={velocity:{}};context.trackVelocities(c,{objects:[object('x',100,100)]},1000);context.trackVelocities(c,{objects:[object('x',150,100)]},1100);
-c.acceptedSample=1100;const lead=context.boxLead(c,'x',1200);assert.ok(Math.abs(lead[0]-50)<1&&Math.abs(lead[1])<1e-9);
-assert.ok(context.boxLead(c,'x',2000)[0]<=75+1e-9,'lead is capped at 150 ms');
-console.log('Glitch checks passed: teleport rejected, real fast move accepted, boxes lead by speed x age.');
+// A reversal/noisy centroid cannot project boxes into empty space.
+const c={velocity:{}};
+const boxed=(x)=>{const o=object('x',x,100);o.observation.bbox_xyxy=[x-20,80,x+20,120];return o;};
+context.trackVelocities(c,{objects:[boxed(100)]},1000);context.trackVelocities(c,{objects:[boxed(150)]},1100);
+c.acceptedSample=1100;const lead=context.boxLead(c,'x',1200);
+assert.ok(lead[0]>0&&lead[0]<=8,'lead is capped relative to the object size');
+assert.deepEqual(Array.from(context.boxLead(c,'x',2000)),[0,0],'stale velocity cannot keep projecting a box');
+c.velocity.x=[1000,-1000];assert.ok(Math.hypot(...context.boxLead(c,'x',1150))<=8.0001,'even a centroid spike is bounded');
+console.log('Glitch checks passed: map teleport gate and bounded, expiring overlay compensation.');

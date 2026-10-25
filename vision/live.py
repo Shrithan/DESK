@@ -850,6 +850,7 @@ class Handler(BaseHTTPRequestHandler):
                   '/mascot.css':('mascot.css','text/css; charset=utf-8'),
                   '/mascot.js':('mascot.js','text/javascript; charset=utf-8'),
                   '/cal-bear.webp':('cal-bear.webp','image/webp'),
+                  '/cal-bear-3d.png':('cal-bear-3d.png','image/png'),
                   '/app.js':('app.js','text/javascript; charset=utf-8'),
                   '/webcam.css':('webcam.css','text/css; charset=utf-8'),
                   '/style.css':('style.css','text/css; charset=utf-8')}

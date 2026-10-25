@@ -26,6 +26,12 @@ function morphKeys(mapping,input){
  return Math.abs(delta)>d?[b[delta<0?'negative':'positive']]:[];
 }
 let keyboardToken=null,keyboardObject=null,keySequence=0,keySending=false,keyboardVersion=0,commandVersion=0,commandRecorder=null,commandRequest=null;
+let commandClarification=null;
+function showClarification(question){const input=$('bear-text');if(input)input.placeholder=question||'Type to talk to the bear…';}
+function clarificationText(reply,pending){
+ if(!pending||/^(?:cancel|never mind|stop|start|help|reset|undo|make|map|use|turn|open|close)\b/i.test(reply.trim()))return reply;
+ return `${pending.request} Clarification answer: ${reply}`.slice(0,1000);
+}
 let handsFreeTimer=null;
 function handsFreeEnabled(){return $('command-hands-free').checked;}
 function stopHandsFree(){clearTimeout(handsFreeTimer);handsFreeTimer=null;$('command-hands-free').checked=false;}
@@ -130,21 +136,32 @@ async function activateMorph(mapping,message){
  try{await armRealKeys(id);}catch(err){keyStatus(err.message+' · mapping ready, output off');}
 }
 async function applyVoiceCommand(result){
- $('command-transcript').textContent='Heard: “'+result.transcript+'”';
+ const spoken=result.transcript.trim();
+ if(/^(cancel|never mind)\s*[.!?]?$/i.test(spoken)){commandClarification=null;showClarification();const message='Okay, I cancelled that request.';$('command-status').textContent=message;if(typeof bearSay==='function')void bearSay(message);return;}
+ const prior=commandClarification,transcript=clarificationText(spoken,prior);
+ commandClarification=null;
+ showClarification();
+ $('command-transcript').textContent='Heard: “'+spoken+'”';
  if(typeof routeStudioCommand==='function'){
-  const local=await routeStudioCommand(result.transcript);
+  let local;
+  try{local=await routeStudioCommand(transcript);}
+  catch(err){
+   if(/Please name one visible object/.test(err.message)){commandClarification={request:transcript};showClarification(err.message);$('command-status').textContent=err.message;if(typeof bearSay==='function')void bearSay(err.message);return;}
+   throw err;
+  }
   if(local?.handled){$('command-status').textContent=local.message;if(typeof bearCaption==='function')bearCaption(local.message);if(!local.silent&&typeof bearSay==='function')void bearSay(local.message);return;}
  }
- if(/^\s*(stop listening|turn off (hands[- ]?free|voice commands))\s*[.!?]?\s*$/i.test(result.transcript)){stopHandsFree();$('command-status').textContent='Hands-free listening off · microphone off';return;}
+ if(/^\s*(stop listening|turn off (hands[- ]?free|voice commands))\s*[.!?]?\s*$/i.test(spoken)){stopHandsFree();$('command-status').textContent='Hands-free listening off · microphone off';return;}
  if(result.intent?.action==='stop_keys'){await stopRealKeys('Stopped by voice');$('command-status').textContent='Keyboard output stopped.';void commandReply('keys_stopped');return;}
  if(!running||studioDemo)throw new Error('Start the real camera first, then show your item.');
  const version=commandVersion,now=performance.timeOrigin+performance.now();
  $('command-status').textContent='ASI:One is choosing a mapping from your live inputs…';
- const response=await fetch('/api/morph/plan',{method:'POST',headers:{'Content-Type':'application/json'},signal:commandRequest?.signal,body:JSON.stringify({transcript:result.transcript,selected:$('command-target').value||null,moved:[...commandMotion].filter(([id,m])=>now-m.moved<1500).map(([id])=>id),current:morphMapping})});
+ const response=await fetch('/api/morph/plan',{method:'POST',headers:{'Content-Type':'application/json'},signal:commandRequest?.signal,body:JSON.stringify({transcript,selected:$('command-target').value||null,moved:[...commandMotion].filter(([id,m])=>now-m.moved<1500).map(([id])=>id),current:morphMapping})});
  const answer=await response.json();if(version!==commandVersion)return;
  if(!response.ok)throw new Error(answer.error||'Mapping agent failed.');
  const plan=answer.plan;
  if(plan.status==='stop'){await stopRealKeys('Stopped by agent');$('command-status').textContent=plan.message;if(typeof bearCaption==='function')bearCaption(plan.message);void speakMappingReply(answer.reply_id);return;}
+ if(plan.status==='clarify'){commandClarification={request:transcript};showClarification(plan.message);}
  if(plan.status!=='ready'){$('command-status').textContent=plan.message;if(typeof bearCaption==='function')bearCaption(plan.message);void speakMappingReply(answer.reply_id);return;}
  await activateMorph(plan.mapping,plan.message);
  if(typeof bearCaption==='function')bearCaption(plan.message);

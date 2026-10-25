@@ -1,0 +1,25 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('vision/web/commands.js','utf8');
+const helper=source.slice(source.indexOf('function showClarification('),source.indexOf('let handsFreeTimer='));
+const apply=source.slice(source.indexOf('async function applyVoiceCommand('),source.indexOf('async function finishCommand('));
+const fields=new Map();const field=id=>{if(!fields.has(id))fields.set(id,{textContent:'',value:''});return fields.get(id);};
+let route=async text=>null,answers=[],plans=[];
+const context={$:field,routeStudioCommand:(text)=>route(text),bearSay:async()=>{},bearCaption:()=>{},running:true,studioDemo:false,commandVersion:0,commandRequest:null,commandMotion:new Map(),performance:{timeOrigin:0,now:()=>0},morphMapping:null,fetch:async(_url,opts)=>{answers.push(JSON.parse(opts.body).transcript);return {ok:true,json:async()=>({plan:plans.shift(),reply_id:'reply'})};},activateMorph:async()=>{},speakMappingReply:()=>{},stopRealKeys:async()=>{},stopHandsFree:()=>{}};
+vm.createContext(context);vm.runInContext('let commandClarification=null;'+helper+apply,context);
+(async()=>{
+ route=async text=>{if(!text.includes('number two'))throw Error('Please name one visible object, such as “disk number one.”');return {handled:true,message:'Made disk two a joystick.'};};
+ await context.applyVoiceCommand({transcript:'Make the disk a joystick'});
+ assert.match(field('command-status').textContent,/Please name/);
+ assert.match(field('bear-text').placeholder,/Please name/);
+ await context.applyVoiceCommand({transcript:'Disk number two'});
+ assert.equal(field('command-status').textContent,'Made disk two a joystick.');
+ assert.equal(field('bear-text').placeholder,'Type to talk to the bear…');
+ assert.equal(answers.length,0,'local clarification should not call planner');
+ route=async()=>null;
+ plans=[{status:'clarify',message:'Should moving right increase the volume?',mapping:null},{status:'ready',message:'Ready.',mapping:{}}];
+ await context.applyVoiceCommand({transcript:'Use the bottle as a volume slider'});
+ assert.match(field('command-status').textContent,/moving right/);
+ await context.applyVoiceCommand({transcript:'Right increases it'});
+ assert.match(answers[1],/Use the bottle as a volume slider Clarification answer: Right increases it/);
+ console.log('Clarification checks passed: local target and planner follow-up context.');
+})().catch(err=>{console.error(err);process.exitCode=1;});

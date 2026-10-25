@@ -108,18 +108,25 @@ function connectBearAudio(source){
  };
  requestAnimationFrame(animate);
 }
-async function bearSay(message){
+let bearSpeechGeneration=0,bearSpeechTask=Promise.resolve();
+function bearSay(message){
  bearCaption(message);
- if(!voiceConfigured||!message||voiceAudio.micBusy)return;
- voiceAudio.replyBusy=true;cancelVoice();
- try{
-  unlockVoice();const response=await fetch('/api/voice/utterance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:message})});
-  if(!response.ok){const data=await response.json();throw Error(data.error||'Cartesia speech unavailable.');}
-  const buffer=await voiceAudio.context.decodeAudioData(await response.arrayBuffer());
-  const source=voiceAudio.context.createBufferSource();source.buffer=buffer;voiceAudio.source=source;connectBearAudio(source);
-  await new Promise(resolve=>{source.onended=()=>{if(voiceAudio.source===source)voiceAudio.source=null;resolve();};source.start();});
- }catch(err){$('bear-state').textContent=err.message;}
- finally{voiceAudio.replyBusy=false;}
+ const generation=++bearSpeechGeneration;
+ cancelVoice();
+ bearSpeechTask=bearSpeechTask.catch(()=>{}).then(async()=>{
+  if(generation!==bearSpeechGeneration||!voiceConfigured||!message||voiceAudio.micBusy)return;
+  voiceAudio.replyBusy=true;
+  try{
+   unlockVoice();const response=await fetch('/api/voice/utterance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:message})});
+   if(!response.ok){const data=await response.json();throw Error(data.error||'Cartesia speech unavailable.');}
+   const bytes=await response.arrayBuffer();if(generation!==bearSpeechGeneration)return;
+   const buffer=await voiceAudio.context.decodeAudioData(bytes);if(generation!==bearSpeechGeneration)return;
+   const source=voiceAudio.context.createBufferSource();source.buffer=buffer;voiceAudio.source=source;connectBearAudio(source);
+   await new Promise(resolve=>{source.onended=()=>{if(voiceAudio.source===source)voiceAudio.source=null;resolve();};source.start();});
+  }catch(err){if(generation===bearSpeechGeneration)$('bear-state').textContent=err.message;}
+  finally{if(generation===bearSpeechGeneration)voiceAudio.replyBusy=false;}
+ });
+ return bearSpeechTask;
 }
 $('bear-talk').addEventListener('click',async()=>{
  if(!$('command-hands-free').checked){
@@ -131,6 +138,8 @@ $('bear-talk').addEventListener('click',async()=>{
 });
 $('bear-stop').addEventListener('click',()=>{$('command-hands-free').checked=false;$('command-hands-free').dispatchEvent(new Event('change'));});
 $('bear-avatar').addEventListener('click',()=>{if($('command-hands-free').checked)$('bear-stop').click();else $('bear-talk').click();});
+$('bear-avatar').addEventListener('pointermove',event=>{const r=$('bear-avatar').getBoundingClientRect(),x=(event.clientX-r.left)/r.width-.5,y=(event.clientY-r.top)/r.height-.5;$('bear-avatar').style.setProperty('--bear-rx',`${(-y*12).toFixed(2)}deg`);$('bear-avatar').style.setProperty('--bear-ry',`${(x*14).toFixed(2)}deg`);});
+$('bear-avatar').addEventListener('pointerleave',()=>{$('bear-avatar').style.setProperty('--bear-rx','0deg');$('bear-avatar').style.setProperty('--bear-ry','0deg');});
 $('bear-form').addEventListener('submit',async event=>{
  event.preventDefault();const input=$('bear-text'),message=input.value.trim();if(!message)return;
  input.value='';

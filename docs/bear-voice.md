@@ -1,6 +1,6 @@
 # Bear voice studio
 
-The root dashboard shows only the California bear and one text box. The supplied sticker image is served locally from `vision/web/cal-bear.webp`. Click the bear to start or stop listening. Type a command and press Enter to use the text box. Its mouth opening follows the actual Cartesia audio amplitude during speech; Cartesia Sonic produces the voice audio, and Cartesia Ink transcribes microphone commands. Camera and detailed control elements remain offscreen for the command handlers.
+The root dashboard shows only a 3D-style California bear and one text box. The transparent bear render is served locally from `vision/web/cal-bear-3d.png`; its idle movement and pointer tilt provide depth. Click the bear to start or stop listening. Type a command and press Enter to use the text box. Its mouth opening follows the actual Cartesia audio amplitude during speech; Cartesia Sonic produces the voice audio, and Cartesia Ink transcribes microphone commands. Camera and detailed control elements remain offscreen for the command handlers.
 
 ## Configure and run
 
@@ -18,5 +18,7 @@ Cartesia transcribes every spoken request. The text box sends typed requests thr
 - “Reset all tracks”; “zero workspace”; “undo mapping”; “open workspace”; “test voice.”
 
 Requests such as “When I cover this bottle, open Calculator” still use the validated ASI:One planner after Cartesia transcription. The bear speaks the local action result through Cartesia Sonic. ASI:One replies use the existing Cartesia reply path. The microphone closes while transcribing or speaking so the bear does not transcribe its own voice. A quiet ten-second window is discarded locally.
+
+If a request needs a specific visible object or the planner needs a mapping detail, the bear asks a follow-up aloud and puts the question in the text box placeholder. A short answer such as “disk number two” or “right increases it” completes the original request. Say or type “cancel” to discard it.
 
 Camera capture, object tracking, macOS Accessibility permission, and application focus remain prerequisites for the corresponding actions. Browser background throttling can pause video or microphone processing; the existing output watchdog releases keys when camera frames stop. The interface reports missing credentials rather than pretending that speech is active.

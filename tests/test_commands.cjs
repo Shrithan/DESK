@@ -1,5 +1,8 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),c={Blob,ArrayBuffer,DataView,Float32Array};vm.createContext(c);const source=fs.readFileSync('vision/web/commands.js','utf8');vm.runInContext(source.slice(0,source.indexOf('let keyboardToken=')),c);
 const item=(id,label,n)=>({object_label:label,number:n,observation:{object_id:id,tracking_state:'tracked'},motion:{center_px:[10,10]}}),items=[item('a','can',1),item('b','can',2)];
+vm.runInContext(source.slice(source.indexOf('function clarificationText('),source.indexOf('let handsFreeTimer=')),c);
+assert.equal(c.clarificationText('number two',{request:'Make the disk a joystick'}),'Make the disk a joystick Clarification answer: number two');
+assert.equal(c.clarificationText('stop everything',{request:'Make the disk a joystick'}),'stop everything');
 assert.equal(c.commandCandidates({},items).length,2,'ambiguous objects never guessed');
 assert.equal(c.commandCandidates({},items,'a')[0].observation.object_id,'a');
 assert.equal(c.commandCandidates({},items,'',new Set(['b']))[0].observation.object_id,'b');

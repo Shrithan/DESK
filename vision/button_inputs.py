@@ -14,22 +14,26 @@ class ObjectButtons:
         if not isinstance(oid,str):raise ValueError('Choose a detected object.')
         with self.lock:
             sample=self.snapshot(oid,True);now=self.clock()
+            self._expire(now)
             if not sample or not sample['tracked'] or now-sample['stamp']>.35:
                 raise ValueError('Show the detected object uncovered first.')
             if oid not in self.buttons and len(self.buttons)>=8:raise ValueError('Use at most eight button objects at once.')
             if self.hand is None:self.hand=self.hand_factory()
             if self.hand.coverage(sample['frame'],sample['bbox'],now)>.15:
                 raise ValueError('Uncover the object before mapping it as a button.')
-            self.buttons[oid]=dict(button=CoverButton(sample['frame'],sample['bbox'],now),frame_id=None,
+            self.buttons[oid]=dict(button=CoverButton(sample['frame'],sample['bbox'],now),frame_id=None,last_poll=now,
                                    state=dict(value=0,phase='learning',presses=0,fire=False))
             return dict(object_id=oid,**self.buttons[oid]['state'])
 
     def update(self,ids):
         if not isinstance(ids,list) or len(ids)>8 or any(not isinstance(i,str) for i in ids):raise ValueError('Invalid button object list.')
         with self.lock:
-            self.buttons={oid:b for oid,b in self.buttons.items() if oid in ids}
-            results={};now=self.clock()
-            for oid,item in self.buttons.items():
+            results={};now=self.clock();self._expire(now)
+            missing=[oid for oid in ids if oid not in self.buttons]
+            for oid in dict.fromkeys(ids):
+                item=self.buttons.get(oid)
+                if item is None:continue
+                item['last_poll']=now
                 sample=self.snapshot(oid,True);button=item['button']
                 if not sample or now-sample['stamp']>.35:
                     button.phase='missing';button.since=None
@@ -57,7 +61,15 @@ class ObjectButtons:
                         'No hand detected over the saved object' if coverage<.08 else
                         'Waiting for the original clear appearance')
                 results[oid]=dict(item['state'])
-            return dict(buttons=results)
+            return dict(buttons=results,missing_ids=missing)
+
+    def _expire(self,now):
+        self.buttons={oid:item for oid,item in self.buttons.items() if now-item['last_poll']<60}
+
+    def remove(self,oid):
+        if not isinstance(oid,str):raise ValueError('Invalid button object.')
+        with self.lock:self.buttons.pop(oid,None)
+        return dict(removed=oid)
 
     def close(self):
         with self.lock:

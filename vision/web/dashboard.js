@@ -48,10 +48,10 @@ function updateStudio(){
   if(entry.type==='button'){
    const state=entry.input.actionState||{},pressed=entry.active&&(state.value!=null?state.value===1:state.phase==='pressed');
    ctx.fillStyle=pressed?'#f2dd83':'#344037';ctx.beginPath();ctx.arc(130,100,65,0,Math.PI*2);ctx.fill();
-   ctx.fillStyle=pressed?'#101512':'#edf2e9';ctx.font='64px sans-serif';ctx.textAlign='center';ctx.fillText(pressed?'1':'0',130,122);ctx.textAlign='start';
-   card.values.textContent=`OUTPUT ${pressed?1:0} · ${state.phase||'waiting'} · ${state.presses||0} covers`;
+   ctx.fillStyle=pressed?'#101512':'#edf2e9';ctx.font='64px sans-serif';ctx.textAlign='center';ctx.fillText(state.phase==='unmapped'?'—':pressed?'1':'0',130,122);ctx.textAlign='start';
+   card.values.textContent=`${state.phase==='unmapped'?'RECONNECT BUTTON':'OUTPUT '+(pressed?1:0)} · ${state.phase||'waiting'} · ${state.presses||0} covers`;
    card.rotation.textContent=entry.input.previewOnly?`0 = uncovered · 1 = covered${state.coverage!=null?' · hand '+Math.round(state.coverage*100)+'%':''}${state.reason?' · '+state.reason:''}`:'Hand-confirmed cover → one key press. Uncover to reset.';
-   if(entry.input.previewOnly)action(card,'Relearn uncovered object',e=>void assignDetectedButton(e));else action(card,'Re-arm / learn clear view',()=>void armRealKeys(entry.id).catch(err=>keyStatus(err.message)));
+   if(entry.input.previewOnly)action(card,'Reconnect / relearn object',e=>void reconnectDetectedButton(e));else action(card,'Re-arm / learn clear view',()=>void armRealKeys(entry.id).catch(err=>keyStatus(err.message)));
   }else if(entry.type==='joystick'){
    const i=entry.input,value=i.current,stick=i.joystick;
    ctx.beginPath();ctx.arc(130,100,74,0,Math.PI*2);ctx.moveTo(45,100);ctx.lineTo(215,100);ctx.moveTo(130,15);ctx.lineTo(130,185);ctx.stroke();
@@ -87,7 +87,7 @@ function updateStudio(){
    action(card,'Add joystick',e=>assignInput(e,'xy'));action(card,'Add slider',e=>assignInput(e,'x'));
   }
   if(entry.type!=='button')action(card,'Use as button',e=>void assignDetectedButton({id:e.id||e.pair.top,name:e.name}));
-  if(['joystick','slider','button'].includes(entry.type))action(card,'Remove',e=>{flatInputs.delete(e.id);dismissedFlatInputs.add(e.id);updateStudio();});
+  if(['joystick','slider','button'].includes(entry.type))action(card,'Remove',e=>{flatInputs.delete(e.id);dismissedFlatInputs.add(e.id);if(e.input.previewOnly)void api('/api/buttons/remove',{object_id:e.id},'top').catch(()=>{});updateStudio();});
  }
  let empty=$('registry-empty');if(!empty){empty=document.createElement('div');empty.id='registry-empty';empty.className='registry-empty';$('control-registry').append(empty);}
  empty.hidden=items.some(e=>studioFilter==='all'||e.type===studioFilter);

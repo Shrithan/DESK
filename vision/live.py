@@ -917,6 +917,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     if path=='/api/buttons/add':result=self.server.object_buttons.add(payload.get('object_id'))
                     elif path=='/api/buttons/update':result=self.server.object_buttons.update(payload.get('object_ids'))
+                    elif path=='/api/buttons/remove':result=self.server.object_buttons.remove(payload.get('object_id'))
                     else:self.send(404,dict(error='Not found'));return
                     self.send(200,result)
                 except (RuntimeError,OSError) as exc:self.send(503,dict(error=str(exc)))

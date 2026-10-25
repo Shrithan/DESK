@@ -77,3 +77,19 @@ def test_clear_appearance_can_ready_button_while_semantic_tracker_is_lost():
     assert state['phase']=='ready' and state['value']==0
     for _ in range(6):state=step(True,False)
     assert state['value']==1 and state['presses']==2
+
+
+def test_empty_or_other_client_poll_cannot_erase_registered_buttons():
+    m,s,n,h,step=setup();m.add('second')
+    assert set(m.status()['buttons'])=={'detected-can','second'}
+    assert m.update([])['buttons']=={}
+    assert set(m.status()['buttons'])=={'detected-can','second'}
+    assert m.update(['unknown'])['missing_ids']==['unknown']
+    assert set(m.status()['buttons'])=={'detected-can','second'}
+    m.remove('second');assert set(m.status()['buttons'])=={'detected-can'}
+
+
+def test_idle_registrations_expire_boundedly_and_report_missing():
+    m,s,n,h,step=setup();n[0]+=61
+    state=m.update(['detected-can'])
+    assert state['buttons']=={} and state['missing_ids']==['detected-can']

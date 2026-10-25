@@ -27,3 +27,9 @@ Covering the detected object runs its mapped task once. Holding does not repeat;
 Enable **Voice feedback** to hear the validated agent explanation through Cartesia using Daniel by default (override with `CARTESIA_VOICE_ID`). `/api/voice/reply` accepts only an opaque ID for a recent server-generated plan message, never client-supplied speech text. Cartesia and ASI keys remain local.
 
 Real-provider verification used generated speech “When I cover this button, open Calculator,” sample detected-object metadata and the actual installed-app registry. Cartesia transcription worked and ASI:One returned `cover_button` with `press:open` targeting the discovered Calculator bundle. Tests verified once-per-cover execution with a fake launcher, safe app-path arguments, changed-bundle rejection, schema grouping, assigned-object selection and restricted spoken replies. No actual app was launched during these automated tests; physical camera/voice activation remains the user's test.
+
+### Missing registration is not an uncovered measurement
+
+If a backend restart loses a button registration, the API returns its ID in `missing_ids` and the card displays **— / RECONNECT BUTTON**, rather than falsely displaying 0. If the original detected ID remains visible, the browser retries enrollment while the object is uncovered. Otherwise **Reconnect / relearn object** binds the explicitly selected current object (or the sole visible candidate after a user click). Native tasks are not automatically re-armed.
+
+Polling one page's requested IDs no longer deletes another page's registrations. Removal is explicit; unused registrations expire after 60 seconds. This fixes a separate stuck-at-zero failure where a stale page kept polling a registration that no longer existed, so hand detection was never reached.

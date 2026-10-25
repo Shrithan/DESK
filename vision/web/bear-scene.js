@@ -11,8 +11,8 @@ try{
  renderer.outputColorSpace=THREE.SRGBColorSpace;
  const scene=new THREE.Scene();
  const camera=new THREE.OrthographicCamera(-2.7,2.7,2.7,-2.7,.1,40);
- camera.position.set(0,1.05,12);
- camera.lookAt(0,1.05,0);
+ camera.position.set(0,1.25,12);
+ camera.lookAt(0,1.25,0);
  scene.add(new THREE.HemisphereLight(0xffffff,0x86a9a2,2.1));
  const sun=new THREE.DirectionalLight(0xffffff,2.65);
  sun.position.set(-3.5,7,6);scene.add(sun);
@@ -50,6 +50,8 @@ try{
  for(const side of [-1,1]){
   block(body,.91,.42,.83,side*1.29,-.45,-.09,navy);
   block(body,.63,1.25,.82,side*1.49,-1.12,-.08,navy);
+  block(body,.76,.53,.82,side*1.73,-.94,-.1,navy);
+  block(body,.92,1.1,.82,side*2.04,-1.5,-.12,navy);
   block(body,.13,.62,.84,side*1.74,-1.02,-.05,gold,false);
   block(body,.24,.48,.09,side*.9,-.68,.43,navyFold,false);
  }

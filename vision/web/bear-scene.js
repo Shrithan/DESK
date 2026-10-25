@@ -9,67 +9,81 @@ try{
  const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true,powerPreference:'low-power'});
  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
  renderer.outputColorSpace=THREE.SRGBColorSpace;
- renderer.shadowMap.enabled=true;
- renderer.shadowMap.type=THREE.PCFSoftShadowMap;
  const scene=new THREE.Scene();
- const camera=new THREE.OrthographicCamera(-3.05,3.05,3.05,-3.05,.1,40);
- camera.position.set(3.8,3.25,11.5);
- camera.lookAt(0,.05,0);
+ const camera=new THREE.OrthographicCamera(-2.6,2.6,2.6,-2.6,.1,40);
+ camera.position.set(1.7,2.75,12);
+ camera.lookAt(0,.9,0);
  scene.add(new THREE.HemisphereLight(0xffffff,0x86a9a2,2.1));
  const sun=new THREE.DirectionalLight(0xffffff,2.65);
- sun.position.set(-3.5,7,6);sun.castShadow=true;
- sun.shadow.mapSize.set(1024,1024);
- sun.shadow.camera.left=-5;sun.shadow.camera.right=5;sun.shadow.camera.top=6;sun.shadow.camera.bottom=-5;
- sun.shadow.normalBias=.025;sun.shadow.radius=3;scene.add(sun);
+ sun.position.set(-3.5,7,6);scene.add(sun);
 
  const mat=(front,side,top)=>[
   new THREE.MeshLambertMaterial({color:side}),new THREE.MeshLambertMaterial({color:side}),
   new THREE.MeshLambertMaterial({color:top}),new THREE.MeshLambertMaterial({color:side}),
   new THREE.MeshLambertMaterial({color:front}),new THREE.MeshLambertMaterial({color:side})
  ];
- const fur=mat('#b97b46','#9c6135','#cf9258');
- const furDark=mat('#945a34','#784627','#aa6d3e');
- const honey=mat('#e9ba78','#d6a15f','#f5cc8e');
- const belly=mat('#dfad70','#c28b53','#f0c289');
+ const fur=mat('#bd814d','#a46a3b','#d59b61');
+ const furDark=mat('#9d6339','#804a2b','#b57946');
+ const honey=mat('#ebbd7c','#d6a05e','#f7cf91');
+ const navy=mat('#173457','#0e2745','#27486e');
+ const navyFold=mat('#102b4d','#0b203b','#1b3b61');
+ const gold=mat('#e6b546','#bf8e2e','#f1ca62');
  const nose=mat('#302725','#211b1b','#403331');
  const eyeMat=mat('#211b1b','#161313','#302828');
  const mouthMat=mat('#402628','#2b191a','#4d3030');
  const earInner=mat('#d29361','#b8794d','#e2a674');
- const shadow=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.ShadowMaterial({opacity:.18}));
- shadow.rotation.x=-Math.PI/2;shadow.position.y=-2.09;shadow.receiveShadow=true;scene.add(shadow);
 
  const root=new THREE.Group();scene.add(root);
  const body=new THREE.Group();root.add(body);
- const headPivot=new THREE.Group();headPivot.position.y=.12;root.add(headPivot);
+ const headPivot=new THREE.Group();headPivot.position.y=-.06;root.add(headPivot);
  function block(parent,w,h,d,x,y,z,material,casts=true){
   const mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);
   mesh.position.set(x,y,z);mesh.castShadow=casts;mesh.receiveShadow=true;parent.add(mesh);return mesh;
  }
- // A few deliberately large blocks make the character read like the duck reference.
- block(body,1.52,1.36,1.03,0,-.87,0,fur);
- block(root,.84,.72,.74,0,.02,-.07,furDark);
- block(body,.91,.91,.08,0,-.88,.56,belly,false);
+ // The sweatshirt continues below the camera crop; the head is almost twice its width.
+ block(body,1.42,1.9,.86,0,-1.11,-.05,navy);
+ block(root,.78,.55,.65,0,-.28,-.06,furDark);
+ block(body,1.28,.23,.95,0,-.29,.04,navyFold);
+ block(body,1.12,.27,.19,0,-.42,.55,navyFold,false);
+ block(body,.91,.085,.1,0,-.54,.67,gold,false);
+ for(const side of [-1,1])block(body,.12,.24,.11,side*.5,-.37,.67,gold,false);
  for(const side of [-1,1]){
-  block(body,.48,.86,.7,side*1.04,-.9,.03,fur);
-  block(body,.56,.4,.82,side*.43,-1.65,.22,furDark);
-  block(body,.69,.24,1.04,side*.43,-1.96,.43,furDark);
+  block(body,.31,.92,.77,side*.77,-.85,-.07,navy);
+  block(body,.11,.52,.79,side*.89,-.88,-.04,gold,false);
+  block(body,.17,.5,.09,side*.56,-.64,.43,navyFold,false);
  }
- block(headPivot,2.18,1.85,1.55,0,1.06,0,fur);
- block(headPivot,1.91,.46,1.56,0,.34,0,furDark);
+ block(headPivot,3.28,2.72,1.68,0,1.23,0,fur);
+ block(headPivot,2.7,.43,1.67,0,.12,0,furDark);
  for(const side of [-1,1]){
-  block(headPivot,.54,.56,.55,side*.84,2.14,-.05,fur);
-  block(headPivot,.31,.31,.035,side*.84,2.15,.245,earInner,false);
+  block(headPivot,.52,.55,.59,side*1.39,2.5,-.05,fur);
+  block(headPivot,.3,.32,.035,side*1.39,2.51,.265,earInner,false);
  }
- block(headPivot,1.15,.46,.47,0,.67,.98,honey);
- block(headPivot,.22,.18,.19,0,.84,1.27,nose);
+ block(headPivot,1.55,.64,.51,0,.56,1.055,honey);
+ block(headPivot,.23,.18,.2,0,.87,1.365,nose);
  const eyes=[];
  for(const side of [-1,1]){
-  const eye=block(headPivot,.105,.14,.075,side*.43,1.43,.82,eyeMat,false);
+  const eye=block(headPivot,.115,.14,.075,side*.61,1.55,.875,eyeMat,false);
   eyes.push(eye);
  }
- const mouth=block(headPivot,.34,.038,.035,0,.44,1.225,mouthMat,false);
- const mouthOpen=block(headPivot,.33,.01,.036,0,.38,1.231,mouthMat,false);
+ const mouth=block(headPivot,.35,.038,.035,0,.38,1.32,mouthMat,false);
+ const mouthOpen=block(headPivot,.34,.01,.036,0,.34,1.33,mouthMat,false);
  mouthOpen.visible=false;
+
+ // A stepped cap keeps its brim and lettering attached to the rotating head.
+ block(headPivot,2.19,.69,1.53,0,2.89,-.045,navy);
+ block(headPivot,2.35,.14,.83,0,2.52,.6,navyFold);
+ block(headPivot,1.96,.11,.39,0,2.51,1.16,navy);
+ block(headPivot,1.56,.1,.2,0,2.5,1.44,navy);
+ const logoCanvas=document.createElement('canvas');logoCanvas.width=1024;logoCanvas.height=512;
+ const ctx=logoCanvas.getContext('2d');
+ ctx.clearRect(0,0,1024,512);
+ ctx.textAlign='center';ctx.textBaseline='middle';
+ ctx.font='italic 900 340px "Brush Script MT", "Snell Roundhand", "Apple Chancery", cursive';
+ ctx.lineJoin='round';ctx.lineWidth=18;ctx.strokeStyle='#8c6124';ctx.strokeText('Cal',512,282);
+ ctx.fillStyle='#f6c74f';ctx.fillText('Cal',512,282);
+ const logoTexture=new THREE.CanvasTexture(logoCanvas);logoTexture.colorSpace=THREE.SRGBColorSpace;
+ const logo=new THREE.Mesh(new THREE.PlaneGeometry(1.45,.71),new THREE.MeshBasicMaterial({map:logoTexture,transparent:true,depthWrite:false}));
+ logo.position.set(0,2.92,.727);headPivot.add(logo);
 
  let targetX=0,targetY=0,activePointer=false;
  function point(event){
@@ -93,7 +107,7 @@ try{
   const w=host.clientWidth,h=host.clientHeight;
   if(!w||!h)return;
   renderer.setSize(w,h,false);
-  const aspect=w/h,halfHeight=3.05;
+  const aspect=w/h,halfHeight=2.6;
   camera.left=-halfHeight*aspect;camera.right=halfHeight*aspect;
   camera.top=halfHeight;camera.bottom=-halfHeight;camera.updateProjectionMatrix();
  }
@@ -105,12 +119,12 @@ try{
   const dt=Math.min(clock.getDelta(),.05);elapsed+=dt;
   const x=activePointer?targetX:0,y=activePointer?targetY:0;
   if(reduced.matches){
-   state.headY=.22+x*.18;state.headX=-.05-y*.1;state.headZ=0;state.bodyY=0;
+   state.headY=.14+x*.14;state.headX=-.04-y*.08;state.headZ=0;state.bodyY=0;
   }else{
-   spring('headY','vy',.22+x*.25,dt);
-   spring('headX','vx',-.05-y*.15,dt);
-   spring('headZ','vz',-x*.035,dt);
-   spring('bodyY','vBody',x*.055,dt,20,9);
+   spring('headY','vy',.14+x*.19,dt);
+   spring('headX','vx',-.04-y*.11,dt);
+   spring('headZ','vz',-x*.026,dt);
+   spring('bodyY','vBody',x*.035,dt,20,9);
   }
   headPivot.rotation.set(state.headX,state.headY,state.headZ);
   body.rotation.y=state.bodyY;

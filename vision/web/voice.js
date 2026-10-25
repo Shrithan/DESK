@@ -39,7 +39,7 @@ async function speakVoice(event,test=false){
   const bytes=await response.arrayBuffer();if(version!==voiceAudio.version)return;
   const audio=await voiceAudio.context.decodeAudioData(bytes);if(version!==voiceAudio.version)return;
   const source=voiceAudio.context.createBufferSource();voiceAudio.source=source;source.buffer=audio;source.connect(voiceAudio.context.destination);
-  voiceStatus('Cartesia · speaking');await new Promise(resolve=>{source.onended=resolve;source.start();});
+  voiceStatus('Cartesia · speaking');await new Promise(resolve=>{source.onended=()=>{if(voiceAudio.source===source)voiceAudio.source=null;resolve();};source.start();});
   if(version===voiceAudio.version)voiceStatus('Cartesia · ready');
  }catch(err){if(version===voiceAudio.version){voiceStatus(err.name==='AbortError'?'Voice request timed out; tracking continues.':err.message);$('voice-enabled').checked=false;voiceAudio.pending=null;}}
  finally{clearTimeout(timeout);voiceAudio.busy=false;voiceAudio.request=null;const pending=voiceAudio.pending;voiceAudio.pending=null;if(pending&&performance.now()-pending.stamp<4000&&$('voice-enabled').checked)void speakVoice(pending.event);}
@@ -55,6 +55,7 @@ void refreshVoiceStatus();
 
 async function speakMappingReply(replyId){
  if(!replyId||!$('voice-enabled').checked||voiceAudio.micBusy)return;
+ voiceAudio.replyBusy=true;
  cancelVoice();unlockVoice();const version=voiceAudio.version,controller=new AbortController();voiceAudio.request=controller;
  const timeout=setTimeout(()=>controller.abort(),22000);
  try{
@@ -62,7 +63,7 @@ async function speakMappingReply(replyId){
   if(!r.ok){const data=await r.json();throw Error(data.error||'Spoken reply unavailable.');}
   const bytes=await r.arrayBuffer();if(version!==voiceAudio.version)return;
   const audio=await voiceAudio.context.decodeAudioData(bytes);if(version!==voiceAudio.version)return;
-  const source=voiceAudio.context.createBufferSource();source.buffer=audio;voiceAudio.source=source;source.connect(voiceAudio.context.destination);source.start();voiceStatus('Cartesia · Daniel · agent reply');
+  const source=voiceAudio.context.createBufferSource();source.buffer=audio;voiceAudio.source=source;source.connect(voiceAudio.context.destination);source.onended=()=>{if(voiceAudio.source===source)voiceAudio.source=null;};source.start();voiceStatus('Cartesia · Daniel · agent reply');
  }catch(err){if(version===voiceAudio.version)voiceStatus(err.message);}
- finally{clearTimeout(timeout);if(voiceAudio.request===controller)voiceAudio.request=null;}
+ finally{clearTimeout(timeout);voiceAudio.replyBusy=false;if(voiceAudio.request===controller)voiceAudio.request=null;}
 }

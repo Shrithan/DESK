@@ -26,6 +26,17 @@ function morphKeys(mapping,input){
  return Math.abs(delta)>d?[b[delta<0?'negative':'positive']]:[];
 }
 let keyboardToken=null,keyboardObject=null,keySequence=0,keySending=false,keyboardVersion=0,commandVersion=0,commandRecorder=null,commandRequest=null;
+let handsFreeTimer=null;
+function handsFreeEnabled(){return $('command-hands-free').checked;}
+function stopHandsFree(){clearTimeout(handsFreeTimer);handsFreeTimer=null;$('command-hands-free').checked=false;}
+function resumeHandsFree(){
+ clearTimeout(handsFreeTimer);
+ if(!handsFreeEnabled())return;
+ handsFreeTimer=setTimeout(()=>{
+  if(handsFreeEnabled()&&!commandRecorder&&!commandRequest&&!voiceAudio.busy&&!voiceAudio.replyBusy&&!voiceAudio.source)void startCommand();
+  else resumeHandsFree();
+ },500);
+}
 const commandMotion=new Map();
 let morphMapping=null,morphPrevious=null,actionToken=null,actionSequence=0,actionRegion=null;
 function keyStatus(text){$('keyboard-status').textContent=text;$('keyboard-status').classList.toggle('is-armed',!!(keyboardToken||actionToken));}
@@ -120,6 +131,7 @@ async function activateMorph(mapping,message){
 }
 async function applyVoiceCommand(result){
  $('command-transcript').textContent='Heard: “'+result.transcript+'”';
+ if(/^\s*(stop listening|turn off (hands[- ]?free|voice commands))\s*[.!?]?\s*$/i.test(result.transcript)){stopHandsFree();$('command-status').textContent='Hands-free listening off · microphone off';return;}
  if(result.intent?.action==='stop_keys'){await stopRealKeys('Stopped by voice');$('command-status').textContent='Keyboard output stopped.';void commandReply('keys_stopped');return;}
  if(!running||studioDemo)throw new Error('Start the real camera first, then show your item.');
  const version=commandVersion,now=performance.timeOrigin+performance.now();
@@ -138,20 +150,21 @@ async function finishCommand(send=true){
  clearTimeout(rec.timer);rec.node?.disconnect();rec.source?.disconnect();rec.stream.getTracks().forEach(t=>t.stop());await rec.context.close();voiceAudio.micBusy=false;
  $('command-talk').textContent='Talk to map';$('command-talk').disabled=send;$('command-cancel').disabled=!send;
  if(!send){$('command-status').textContent='Voice cancelled · microphone off';return;}
- if(!rec.voiced){$('command-status').textContent='No speech detected. Click Talk and speak clearly.';$('command-talk').disabled=false;$('command-cancel').disabled=true;return;}
+ if(!rec.voiced){$('command-status').textContent=handsFreeEnabled()?'Listening for a voice command…':'No speech detected. Click Talk and speak clearly.';$('command-talk').disabled=false;$('command-cancel').disabled=true;resumeHandsFree();return;}
  const version=commandVersion,controller=new AbortController();commandRequest=controller;
  const timer=setTimeout(()=>controller.abort(),55000);$('command-status').textContent='Cartesia is listening to your command… microphone off';
  try{const response=await fetch('/api/voice/transcribe',{method:'POST',headers:{'Content-Type':'audio/wav'},body:encodeCommandWav(rec.chunks,rec.context.sampleRate),signal:controller.signal});const result=await response.json();if(!response.ok)throw new Error(result.error||'Voice transcription failed.');if(version===commandVersion)await applyVoiceCommand(result);}
  catch(err){if(version===commandVersion)$('command-status').textContent=err.name==='AbortError'?'Voice request cancelled or timed out.':err.message;}
- finally{clearTimeout(timer);if(version===commandVersion){commandRequest=null;$('command-talk').disabled=false;$('command-cancel').disabled=true;}}
+ finally{clearTimeout(timer);if(version===commandVersion){commandRequest=null;$('command-talk').disabled=false;$('command-cancel').disabled=true;resumeHandsFree();}}
 }
 async function startCommand(){
  if(commandRecorder){await finishCommand(true);return;}
- const version=++commandVersion;let stream=null,context=null;$('command-talk').disabled=true;$('command-cancel').disabled=false;cancelVoice();voiceAudio.micBusy=true;await stopRealKeys('Listening for mapping');
+ const version=++commandVersion;let stream=null,context=null;$('command-talk').disabled=true;$('command-cancel').disabled=false;cancelVoice();voiceAudio.micBusy=true;
+ if(!handsFreeEnabled())await stopRealKeys('Listening for mapping');
  try{
   unlockVoice();if(!await refreshVoiceStatus())throw new Error('Configure your Cartesia key first.');
   stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,channelCount:1},video:false});
-  if(version!==commandVersion){stream.getTracks().forEach(t=>t.stop());return;}
+  if(version!==commandVersion){stream.getTracks().forEach(t=>t.stop());voiceAudio.micBusy=false;return;}
   context=new AudioContext();await context.audioWorklet.addModule('/mic-worklet.js');await context.resume();
   if(version!==commandVersion){stream.getTracks().forEach(t=>t.stop());await context.close();voiceAudio.micBusy=false;return;}
   const source=context.createMediaStreamSource(stream),node=new AudioWorkletNode(context,'phantom-microphone');source.connect(node);node.connect(context.destination);
@@ -160,16 +173,17 @@ async function startCommand(){
    if(loud){rec.speechMs+=chunk.length/context.sampleRate*1000;rec.lastSpeech=performance.now();}if(rec.speechMs>200)rec.voiced=true;
    if(rec.voiced&&performance.now()-rec.lastSpeech>900&&performance.now()-rec.start>1000)void finishCommand(true);};
   rec.timer=setTimeout(()=>void finishCommand(true),10000);$('command-talk').disabled=false;$('command-talk').textContent='Finish command';$('command-cancel').disabled=false;$('command-status').textContent='Microphone on · say “Map this can to a joystick,” then pause or click Finish.';
- }catch(err){stream?.getTracks().forEach(t=>t.stop());if(context&&context.state!=='closed')await context.close();voiceAudio.micBusy=false;if(version===commandVersion){$('command-talk').disabled=false;$('command-cancel').disabled=true;$('command-status').textContent=err.message||'Microphone could not start.';}}
+ }catch(err){stream?.getTracks().forEach(t=>t.stop());if(context&&context.state!=='closed')await context.close();voiceAudio.micBusy=false;if(version===commandVersion){stopHandsFree();$('command-talk').disabled=false;$('command-cancel').disabled=true;$('command-status').textContent=err.message||'Microphone could not start.';}}
 }
+$('command-hands-free').addEventListener('change',()=>{if(handsFreeEnabled()){if(!commandRecorder&&!commandRequest)void startCommand();else resumeHandsFree();}else{clearTimeout(handsFreeTimer);commandVersion++;commandRequest?.abort();if(commandRecorder)void finishCommand(false);$('command-talk').disabled=false;$('command-cancel').disabled=true;$('command-status').textContent='Hands-free listening off · microphone off';}});
 $('command-talk').addEventListener('click',()=>void startCommand());
-$('command-cancel').addEventListener('click',()=>{commandVersion++;commandRequest?.abort();voiceAudio.micBusy=false;void finishCommand(false);$('command-talk').disabled=false;$('command-text-send').disabled=false;$('command-cancel').disabled=true;$('command-status').textContent='Voice cancelled · no command applied';});
+$('command-cancel').addEventListener('click',()=>{stopHandsFree();commandVersion++;commandRequest?.abort();voiceAudio.micBusy=false;void finishCommand(false);$('command-talk').disabled=false;$('command-text-send').disabled=false;$('command-cancel').disabled=true;$('command-status').textContent='Voice cancelled · no command applied';});
 $('keyboard-arm').addEventListener('click',()=>{void armRealKeys().catch(err=>keyStatus(err.message));});
-$('keyboard-stop').addEventListener('click',()=>{commandVersion++;commandRequest?.abort();$('command-text-send').disabled=false;void finishCommand(false);void stopRealKeys('Emergency stop');});
+$('keyboard-stop').addEventListener('click',()=>{stopHandsFree();commandVersion++;commandRequest?.abort();$('command-text-send').disabled=false;void finishCommand(false);void stopRealKeys('Emergency stop');});
 $('keyboard-mode').addEventListener('change',()=>void stopRealKeys('Output mode changed'));
 $('keyboard-target').addEventListener('change',()=>void stopRealKeys('Joystick target changed'));
-window.addEventListener('keydown',e=>{if(e.key==='Escape'){void stopRealKeys('Escape');if(commandRecorder){commandVersion++;void finishCommand(false);}}});
-window.addEventListener('pagehide',()=>{commandVersion++;commandRequest?.abort();void finishCommand(false);void stopRealKeys('Dashboard closed');});
+window.addEventListener('keydown',e=>{if(e.key==='Escape'){stopHandsFree();void stopRealKeys('Escape');if(commandRecorder){commandVersion++;void finishCommand(false);}}});
+window.addEventListener('pagehide',()=>{stopHandsFree();commandVersion++;commandRequest?.abort();void finishCommand(false);void stopRealKeys('Dashboard closed');});
 void fetch('/api/keys/status').then(r=>r.json()).then(s=>{if(!s.accessibility)keyStatus('macOS Accessibility permission is needed · real keys disarmed');}).catch(()=>{});
 
 $('keyboard-permission').addEventListener('click',async()=>{try{await stopRealKeys('Permission setup');const state=await api('/api/keys/request-permission',{});keyStatus(state.accessibility?'Permission granted · click Arm real WASD':'macOS permission requested · enable the named app in Accessibility, then click Arm real WASD');}catch(err){keyStatus(err.message);}});

@@ -57,7 +57,7 @@ class CartesiaVoice:
         config = self.config()
         return dict(provider='cartesia', configured=bool(config.get('CARTESIA_API_KEY')),
                     model=config.get('CARTESIA_MODEL_ID') or 'sonic-3.6',
-                    sends='Status phrases and validated agent replies for speech; short microphone clips only when you click Talk. No camera frames.',speech_input_model='ink-whisper')
+                    sends='Status phrases and validated agent replies for speech; short microphone clips during a user-started Talk or hands-free session. No camera frames.',speech_input_model='ink-whisper')
 
     def speak(self, event):
         if not isinstance(event, str) or event not in PHRASES:

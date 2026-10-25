@@ -1,0 +1,14 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const values={},writes=[],sent=[];
+const c={engine:{beginTimer:()=>1,stopTimer(){},getParameter:(g,k)=>values[g+k]??.5,getValue:(g,k)=>k==='crossfader'?0:.5,setParameter:(g,k,v)=>{writes.push([g,k,v]);values[g+k]=v;}},midi:{sendSysexMsg:b=>sent.push(Array.from(b))}};
+vm.createContext(c);vm.runInContext(fs.readFileSync('mapping/DESK-Spatial-DJ.js','utf8'),c);
+const packet=p=>[...c.DESKDJ.prefix,...Buffer.from(JSON.stringify(p),'ascii'),0xF7];
+const send=p=>{const b=packet(p);c.DESKDJ.incomingData(b,b.length);};
+send({type:'hello',session:'1234567812345678'});assert.equal(sent.length,1);
+let feedback=JSON.parse(Buffer.from(sent[0].slice(c.DESKDJ.prefix.length,-1)).toString());assert.equal(feedback.values['mixxx.crossfader'],.5);
+send({type:'set',session:'1234567812345678',seq:1,target:'mixxx.deck1.volume',value:.2});assert.deepEqual(writes[0],['[Channel1]','volume',.2]);
+send({type:'set',session:'1234567812345678',seq:1,target:'mixxx.deck1.volume',value:.9});assert.equal(writes.length,1,'duplicate sequence ignored');
+send({type:'set',session:'1234567812345678',seq:2,target:'__proto__',value:.5});assert.equal(writes.length,1,'unknown target rejected');
+send({type:'set',session:'1234567812345678',seq:3,target:'mixxx.crossfader',value:2});assert.equal(writes.length,1);
+send({type:'hello',session:'abcdef00abcdef00'});send({type:'set',session:'abcdef00abcdef00',seq:1,target:'mixxx.crossfader',value:.75});assert.equal(writes.length,2,'a new bridge session can restart its sequence');
+console.log('Mixxx mapping checks passed: float values, actual feedback, replay guard and bounded target registry.');

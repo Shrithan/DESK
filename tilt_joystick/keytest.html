@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WASD Key Tester</title>
+<style>
+:root{--bg:#16181c;--fg:#eee;--on:#3c3;--off:#333;--bad:#e44}
+body{background:var(--bg);color:var(--fg);font:16px system-ui;margin:24px}
+.keys{display:grid;grid-template-columns:repeat(3,72px);gap:8px;margin:24px 0}
+.k{height:72px;border-radius:8px;background:var(--off);display:grid;place-items:center;font-size:28px;font-weight:700}
+.k.on{background:var(--on);color:#000}
+#log{font:13px ui-monospace,monospace;white-space:pre;max-height:50vh;overflow:auto}
+.bad{color:var(--bad)}
+</style></head><body>
+<h1>WASD key tester</h1>
+<p>Click this page, then tilt the can. Holding a tilt for 3 s must show one DOWN, a growing hold time, then one UP.
+Flicker = an UP followed by a DOWN of the same key within 150 ms. OS auto-repeat events are counted separately.</p>
+<div class="keys"><div></div><div class="k" id="k-w">W</div><div></div>
+<div class="k" id="k-a">A</div><div class="k" id="k-s">S</div><div class="k" id="k-d">D</div></div>
+<div id="stats"></div><div id="log"></div>
+<script>
+const held={},lastUp={},stats={downs:0,ups:0,repeats:0,flicker:0};const log=document.getElementById('log');
+function line(t,cls){const d=document.createElement('div');d.textContent=`${performance.now().toFixed(0).padStart(8)} ms  ${t}`;if(cls)d.className=cls;log.prepend(d);}
+function show(){document.getElementById('stats').textContent=`downs ${stats.downs}  ups ${stats.ups}  auto-repeats ${stats.repeats}  flicker ${stats.flicker}`+Object.entries(held).map(([k,t])=>`  ${k.toUpperCase()} held ${((performance.now()-t)/1000).toFixed(1)} s`).join('');requestAnimationFrame(show);}
+addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(!'wasd'.includes(k)||k.length!==1)return;e.preventDefault();
+ if(e.repeat||held[k]){stats.repeats++;return;}
+ const now=performance.now();if(lastUp[k]&&now-lastUp[k]<150){stats.flicker++;line(`FLICKER ${k.toUpperCase()} (${(now-lastUp[k]).toFixed(0)} ms gap)`,'bad');}
+ held[k]=now;stats.downs++;document.getElementById('k-'+k).classList.add('on');line(`DOWN ${k.toUpperCase()}`);});
+addEventListener('keyup',e=>{const k=e.key.toLowerCase();if(!(k in held))return;const dur=performance.now()-held[k];delete held[k];lastUp[k]=performance.now();stats.ups++;
+ document.getElementById('k-'+k).classList.remove('on');line(`UP   ${k.toUpperCase()} after ${(dur/1000).toFixed(2)} s`);});
+show();
+</script></body></html>

@@ -1,0 +1,15 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('vision/web/fusion.js','utf8');
+const calls=[],tracks=[30,60].map(max=>({label:max===60?'iPhone Camera':'USB webcam',getCapabilities:()=>({frameRate:{max}}),getSettings:()=>({frameRate:max}),applyConstraints:async c=>calls.push(c)}));
+const context={roles:['front','top'],cameras:{front:{stream:{getVideoTracks:()=>[tracks[0]]}},top:{stream:{getVideoTracks:()=>[tracks[1]]}}},$:()=>({textContent:''}),commonFps:30};
+vm.createContext(context);vm.runInContext(source.slice(source.indexOf('function frameLayout('),source.indexOf('async function wideView(')),context);
+let layout=context.frameLayout(1280,720,'cw',true);assert.equal(layout.width,720);assert.equal(layout.height,1280);assert.equal(layout.turn,1);
+layout=context.frameLayout(720,1280,'auto',true);assert.equal(layout.turn,0,'native portrait must not rotate twice');
+assert.equal(context.frameLayout(1280,720,'auto',false).turn,0,'webcam stays landscape');
+assert.equal(context.frameLayout(1280,720,'ccw',true).turn,-1);
+assert.equal(context.frameLayout(1280,720,'raw',true).width,1280);
+const inputs=[{video:{readyState:4},sequence:10,lastPresented:9},{video:{readyState:4},sequence:20,lastPresented:20}];
+assert.equal(context.freshPair(inputs,'lastPresented'),false,'wait for fresh slower camera frame');inputs[1].sequence++;
+assert.equal(context.freshPair(inputs,'lastPresented'),true);
+inputs[0].video.readyState=1;assert.equal(context.freshPair(inputs,'lastPresented'),false,'wait for unavailable input');
+(async()=>{await context.matchFrameRates();assert.equal(context.commonFps,30);assert.equal(calls.length,2);assert.equal(calls[0].frameRate.exact,30);assert.equal(calls[1].frameRate.exact,60,'phone must not be throttled by webcam');console.log('Video checks passed: uncropped portrait geometry, fresh paired frames, common camera FPS.');})().catch(e=>{console.error(e);process.exitCode=1;});

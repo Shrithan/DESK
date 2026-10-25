@@ -1,0 +1,11 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),ctx={Blob};vm.createContext(ctx);const source=fs.readFileSync('vision/web/commands.js','utf8');vm.runInContext(source.slice(0,source.indexOf('let keyboardToken=')),ctx);
+const keys=(m,i)=>Array.from(ctx.morphKeys(m,i));
+const joystick={controller:'joystick',bindings:{up:'up',down:'down',left:'left',right:'right'},deadzone:.2};
+assert.deepEqual(keys(joystick,{joystick:{x:.8,y:.9}}),['up','right']);
+assert.deepEqual(keys(joystick,{joystick:{x:.1,y:.1}}),[]);
+assert.deepEqual(keys(joystick,{joystick:null}),[]);
+const slider={controller:'slider_x',bindings:{negative:'a',positive:'d'},deadzone:.2},input={current:{value:.7}};
+assert.deepEqual(keys(slider,input),[]);input.current.value=.9;assert.deepEqual(keys(slider,input),['d']);input.current.value=.4;assert.deepEqual(keys(slider,input),['a']);input.current=null;assert.deepEqual(keys(slider,input),[]);
+const dial={controller:'dial',bindings:{negative:'left',positive:'right'},deadzone:.1},rotation={filteredYaw:179};
+assert.deepEqual(keys(dial,rotation),[]);rotation.filteredYaw=-179;assert.deepEqual(keys(dial,rotation),[]);rotation.filteredYaw=-150;assert.deepEqual(keys(dial,rotation),['right']);rotation.filteredYaw=null;assert.deepEqual(keys(dial,rotation),[]);
+console.log('Morph runtime: joystick axes, deadzones, slider centering, yaw wrap and missing observations pass.');

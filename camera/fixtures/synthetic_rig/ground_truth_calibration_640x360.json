@@ -1,0 +1,362 @@
+{
+  "calibration_id": "20261024T100057Z-623dc43e",
+  "schema": "phantom.rig_calibration",
+  "schema_version": "1.0.0",
+  "rig_name": "desk_frame_c270_synthetic",
+  "created_unix_ms": 1792836057820,
+  "conventions": {
+    "world_frame": "right-handed, metres, +X right, +Y away from the viewer, +Z up; origin = centre of the checkerboard inner-corner grid lying flat on the table during extrinsic calibration",
+    "camera_frame": "OpenCV: +X image right, +Y image down, +Z optical axis (forward), metres",
+    "extrinsics": "x_cam = R_world_to_camera @ x_world + t_world_to_camera_m; camera_center_world_m = -R_world_to_camera^T @ t_world_to_camera_m",
+    "pixels": "OpenCV: (0,0) = centre of top-left pixel, u right, v down",
+    "distortion_model": "opencv_radtan [k1, k2, p1, p2, k3] on normalised coordinates",
+    "units": "metres for all positions/translations; pixels for image quantities"
+  },
+  "world_reference": {},
+  "cameras": {
+    "cam_1": {
+      "camera_id": "cam_1",
+      "intrinsics": {
+        "image_size": {
+          "width": 640,
+          "height": 360
+        },
+        "K": [
+          [
+            711.0867532849936,
+            0.0,
+            315.82778819148956
+          ],
+          [
+            0.0,
+            710.4319468119028,
+            176.59916581317117
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_model": "opencv_radtan",
+        "dist": [
+          -0.06,
+          0.09,
+          0.0004,
+          -0.0003,
+          0.0
+        ],
+        "rms_reprojection_px": null,
+        "num_views": null,
+        "per_view_rms_px": null,
+        "method": "synthetic_ground_truth+scaled_from_1280x720",
+        "calibrated_unix_ms": null
+      },
+      "extrinsics": {
+        "R_world_to_camera": [
+          [
+            0.9993725448410656,
+            0.034196752277486926,
+            -0.009224898458213154
+          ],
+          [
+            0.034064011605552884,
+            -0.9993190256093119,
+            -0.01418196631614884
+          ],
+          [
+            -0.009703593727527417,
+            0.013858830720079322,
+            -0.9998568762977246
+          ]
+        ],
+        "t_world_to_camera_m": [
+          -0.0029942162341734533,
+          0.0022225573081991754,
+          0.6754385576644135
+        ],
+        "R_camera_to_world": [
+          [
+            0.9993725448410656,
+            0.034064011605552884,
+            -0.009703593727527417
+          ],
+          [
+            0.034196752277486926,
+            -0.9993190256093119,
+            0.013858830720079322
+          ],
+          [
+            -0.009224898458213154,
+            -0.01418196631614884,
+            -0.9998568762977246
+          ]
+        ],
+        "camera_center_world_m": [
+          0.009470809631292421,
+          -0.007037352358069928,
+          0.6753457852895394
+        ],
+        "optical_axis_world": [
+          -0.009703593727527417,
+          0.013858830720079322,
+          -0.9998568762977246
+        ],
+        "rms_reprojection_px": null,
+        "method": "synthetic_ground_truth",
+        "calibrated_unix_ms": null
+      },
+      "projection_matrix_undistorted": [
+        [
+          707.5759136887212,
+          28.69386140313231,
+          -322.3422888431967,
+          211.19311822580997
+        ],
+        [
+          22.486515523484925,
+          -707.5007029054851,
+          -186.64921222634368,
+          120.8608615569519
+        ],
+        [
+          -0.009703593727527417,
+          0.013858830720079322,
+          -0.9998568762977246,
+          0.6754385576644135
+        ]
+      ]
+    },
+    "cam_2": {
+      "camera_id": "cam_2",
+      "intrinsics": {
+        "image_size": {
+          "width": 640,
+          "height": 360
+        },
+        "K": [
+          [
+            718.6570014523645,
+            0.0,
+            322.3592342127005
+          ],
+          [
+            0.0,
+            717.2275596187428,
+            176.7015134518328
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_model": "opencv_radtan",
+        "dist": [
+          -0.06,
+          0.09,
+          0.0004,
+          -0.0003,
+          0.0
+        ],
+        "rms_reprojection_px": null,
+        "num_views": null,
+        "per_view_rms_px": null,
+        "method": "synthetic_ground_truth+scaled_from_1280x720",
+        "calibrated_unix_ms": null
+      },
+      "extrinsics": {
+        "R_world_to_camera": [
+          [
+            -0.769940050005993,
+            -0.07780321966028336,
+            -0.6333553334481857
+          ],
+          [
+            -0.08755922231000797,
+            0.9960321932898552,
+            -0.015913909597187532
+          ],
+          [
+            0.6320804553102679,
+            0.04320334409156947,
+            -0.773697466115839
+          ]
+        ],
+        "t_world_to_camera_m": [
+          -0.0117838319030121,
+          0.0239312708599334,
+          0.8686956799429619
+        ],
+        "R_camera_to_world": [
+          [
+            -0.769940050005993,
+            -0.08755922231000797,
+            0.6320804553102679
+          ],
+          [
+            -0.07780321966028336,
+            0.9960321932898552,
+            0.04320334409156947
+          ],
+          [
+            -0.6333553334481857,
+            -0.015913909597187532,
+            -0.773697466115839
+          ]
+        ],
+        "camera_center_world_m": [
+          -0.5560630015636916,
+          -0.06228369463625866,
+          0.6650251336944267
+        ],
+        "optical_axis_world": [
+          0.6320804553102679,
+          0.04320334409156947,
+          -0.773697466115839
+        ],
+        "rms_reprojection_px": null,
+        "method": "synthetic_ground_truth",
+        "calibrated_unix_ms": null
+      },
+      "projection_matrix_undistorted": [
+        [
+          -349.56583610075745,
+          -41.98683162761276,
+          -704.5737674791443,
+          271.56354084925704
+        ],
+        [
+          48.88968573712591,
+          722.0158355821475,
+          -148.12740776090098,
+          170.6640083724355
+        ],
+        [
+          0.6320804553102679,
+          0.04320334409156947,
+          -0.773697466115839,
+          0.8686956799429619
+        ]
+      ]
+    },
+    "cam_3": {
+      "camera_id": "cam_3",
+      "intrinsics": {
+        "image_size": {
+          "width": 640,
+          "height": 360
+        },
+        "K": [
+          [
+            685.3305733649171,
+            0.0,
+            320.864995317549
+          ],
+          [
+            0.0,
+            684.3006127347597,
+            180.3831370694455
+          ],
+          [
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "distortion_model": "opencv_radtan",
+        "dist": [
+          -0.06,
+          0.09,
+          0.0004,
+          -0.0003,
+          0.0
+        ],
+        "rms_reprojection_px": null,
+        "num_views": null,
+        "per_view_rms_px": null,
+        "method": "synthetic_ground_truth+scaled_from_1280x720",
+        "calibrated_unix_ms": null
+      },
+      "extrinsics": {
+        "R_world_to_camera": [
+          [
+            0.7523349065049819,
+            -0.1099818027669534,
+            -0.6495353658687654
+          ],
+          [
+            -0.1186472698891685,
+            -0.992464143874754,
+            0.03062267902712824
+          ],
+          [
+            -0.6480084982482767,
+            0.05402708749398462,
+            -0.759714459527348
+          ]
+        ],
+        "t_world_to_camera_m": [
+          0.009778380821127579,
+          -0.02604894566042346,
+          0.8551276738535011
+        ],
+        "R_camera_to_world": [
+          [
+            0.7523349065049819,
+            -0.1186472698891685,
+            -0.6480084982482767
+          ],
+          [
+            -0.1099818027669534,
+            -0.992464143874754,
+            0.05402708749398462
+          ],
+          [
+            -0.6495353658687654,
+            0.03062267902712824,
+            -0.759714459527348
+          ]
+        ],
+        "camera_center_world_m": [
+          0.5436827462374156,
+          -0.07097725825667339,
+          0.6568019512347003
+        ],
+        "optical_axis_world": [
+          -0.6480084982482767,
+          0.05402708749398462,
+          -0.759714459527348
+        ],
+        "rms_reprojection_px": null,
+        "method": "synthetic_ground_truth",
+        "calibrated_unix_ms": null
+      },
+      "projection_matrix_undistorted": [
+        [
+          307.6748690813353,
+          -58.0384907742052,
+          -688.912221210549,
+          281.0819604016341
+        ],
+        [
+          -198.08020524614884,
+          -669.3982462418826,
+          -116.08455946471757,
+          136.42530292806993
+        ],
+        [
+          -0.6480084982482767,
+          0.05402708749398462,
+          -0.759714459527348,
+          0.8551276738535011
+        ]
+      ]
+    }
+  },
+  "validation": {},
+  "notes": [
+    "SYNTHETIC ground truth, not a real calibration",
+    "intrinsics scaled to the 640x360 clips"
+  ]
+}

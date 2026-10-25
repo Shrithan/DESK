@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MixxxMIDIPreset schemaVersion="1" mixxxVersion="2.5.0">
+ <info><name>DESK Spatial DJ</name><author>DESK</author><description>Camera-tracked physical sliders: two deck volumes, crossfader and EQ. Bidirectional mixer feedback; no track loading or playback automation.</description></info>
+ <controller id="DESK Spatial DJ">
+  <scriptfiles><file filename="DESK-Spatial-DJ.js" functionprefix="DESKDJ"/></scriptfiles>
+  <controls><control><group>[Master]</group><key>DESKDJ.incomingData</key><status>0xF0</status><options><Script-Binding/></options></control></controls>
+  <outputs/>
+ </controller>
+</MixxxMIDIPreset>

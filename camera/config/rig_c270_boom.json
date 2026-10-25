@@ -1,0 +1,70 @@
+{
+  "schema": "phantom.camera_rig",
+  "schema_version": "1.0.0",
+  "rig_name": "boom_c270_single",
+  "notes": [
+    "One C270 on the printed boom stand (camera/hardware/c270_boom), looking straight down.",
+    "World axes: +Z up, origin on the table directly under the lens, +X along the arm (away from the leg). The calibrated world origin is the checkerboard centre; place the board under the camera.",
+    "Single camera = monocular: metric X/Y on the table plane only; height needs a second view."
+  ],
+  "frame": {
+    "width_m": 0.0,
+    "depth_m": 0.0,
+    "height_m": 0.995,
+    "tube": "printed 40 mm boom",
+    "tube_od_mm": 40.0,
+    "overhead_crossbar_y_m": 0.0
+  },
+  "camera_model": {
+    "name": "logitech_c270",
+    "image_width": 1280,
+    "image_height": 720,
+    "fps": 30,
+    "fourcc": "MJPG",
+    "diagonal_fov_deg": 55.0,
+    "fixed_focus": true,
+    "body_mm": {
+      "width": 73.0,
+      "height": 32.0,
+      "depth": 30.0
+    }
+  },
+  "cameras": [
+    {
+      "id": "cam_1",
+      "role": "boom_overhead",
+      "source": {
+        "kind": "uvc",
+        "unique_id": null,
+        "linux_by_path": null,
+        "index": 0,
+        "name_contains": "C270"
+      },
+      "mount": {
+        "tube": "boom_head",
+        "tube_axis": "x",
+        "tube_point_m": [
+          0.0,
+          0.0,
+          0.995
+        ],
+        "lens_offset_from_tube_mm": [
+          0.0,
+          0.0,
+          -85.0
+        ]
+      },
+      "look_at_m": null,
+      "look_direction": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": "portrait"
+    }
+  ],
+  "sync": {
+    "pair_tolerance_ms": 20.0
+  },
+  "calibration_file": "calibration/data/rig_calibration_boom.json"
+}

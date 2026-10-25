@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "phantom.camera_inventory/1.0.0",
+  "title": "Camera inventory (GET /api/cameras) - PROPOSED for shared/contracts, owner: agent 1",
+  "type": "object",
+  "required": ["schema", "schema_version", "rig_name", "timestamp_unix_ms", "calibration_version", "cameras"],
+  "properties": {
+    "schema": {"const": "phantom.camera_inventory"},
+    "schema_version": {"type": "string", "pattern": "^1\\."},
+    "rig_name": {"type": "string"},
+    "timestamp_unix_ms": {"type": "integer"},
+    "clock": {"type": "string"},
+    "calibration_version": {"type": ["string", "null"]},
+    "cameras": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["camera_id", "role", "requested", "frame_size", "source", "nominal_pose", "health"],
+        "properties": {
+          "camera_id": {"type": "string", "pattern": "^cam_[0-9]+$"},
+          "role": {"type": "string"},
+          "frame_size": {"type": ["object", "null"]},
+          "source": {"type": "object"},
+          "nominal_pose": {"type": "object"},
+          "health": {"$ref": "#/$defs/health"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "health": {
+      "type": "object",
+      "required": ["camera_id", "state", "fps", "frames", "missed_frames", "reconnects", "last_frame_age_ms"],
+      "properties": {
+        "state": {"enum": ["idle", "connecting", "streaming", "stalled", "disconnected", "stopped"]},
+        "fps": {"type": "number"},
+        "last_frame_age_ms": {"type": ["number", "null"]},
+        "pipeline_latency_ms": {"type": ["number", "null"]}
+      }
+    }
+  }
+}

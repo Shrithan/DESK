@@ -1,0 +1,3 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),c={};vm.createContext(c);const s=fs.readFileSync('vision/web/fusion.js','utf8');vm.runInContext(s.slice(s.indexOf('function cameraConstraints('),s.indexOf('async function start(){')),c);
+const camo=c.cameraConstraints('camo-id','Camo Camera');assert.equal(camo.width,undefined);assert.equal(camo.height,undefined);assert.equal(camo.aspectRatio,undefined);assert.equal(camo.deviceId.exact,'camo-id');assert.equal(camo.resizeMode.ideal,'none');
+assert.equal(c.cameraConstraints('phone','iPhone Camera').aspectRatio.ideal,9/16);assert.equal(c.cameraConstraints('usb','C270').aspectRatio.ideal,16/9);console.log('Camo uses native output profile without forced landscape cropping.');

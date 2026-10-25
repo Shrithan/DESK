@@ -1,0 +1,12 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const c={};vm.createContext(c);vm.runInContext(fs.readFileSync('vision/web/prediction.js','utf8'),c);
+let state=c.updatePrediction(null,[0,0,0],0);
+state=c.updatePrediction(state,[1,2,3],50);
+let p=c.predictPosition(state,75);assert.ok(p.predicted);assert.ok(p.point[0]>1&&p.point[2]>3);
+assert.equal(c.predictPosition(state,400),null,'stale observations cannot be extrapolated');
+assert.equal(c.predictPosition(state,75,false).point[0],1);
+assert.equal(c.predictPosition(state,170).point[0],c.predictPosition(state,150).point[0],'look-ahead is bounded to 80ms');
+const phoneOnly=c.updatePrediction(state,[1,2,4],75,[50,50,75]);assert.equal(phoneOnly.velocity[0],state.velocity[0],'phone-only samples cannot distort overhead velocity');
+const turn=c.updatePrediction(state,[0,0,0],100);assert.ok(turn.velocity[0]<0,'measurement reversals correct velocity');
+assert.ok(Math.abs(c.updatePrediction(state,[1000,0,0],51).velocity[0])<=180,'bad jumps cannot produce unlimited predictions');
+console.log('Prediction checks passed: bounded extrapolation, stale cutoff, per-axis timing, correction and opt-out.');

@@ -1,0 +1,11 @@
+# Camera ingest + calibration (agent 1). Python >= 3.10.
+numpy>=1.24
+opencv-python>=4.8        # 4.x and 5.x both supported; macOS index order = AVFoundation uniqueID order in both
+fastapi>=0.110
+uvicorn>=0.29
+httpx>=0.27               # FastAPI TestClient (tests)
+pytest>=8
+jsonschema>=4             # schema tests (optional, skipped if missing)
+# macOS, strongly recommended for exact camera identity:
+#   pip install pyobjc-framework-AVFoundation
+# Hardware generators (camera/hardware/*): pip install manifold3d trimesh

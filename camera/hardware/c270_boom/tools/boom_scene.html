@@ -1,0 +1,55 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#eef1f5}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script></head><body>
+<script type="module">
+// Preview of the printed C270 boom stand. Units: metres; stand STL is in mm.
+import * as THREE from 'three';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+const W = 1600, H = 1000, S = await (await fetch('boom_scene.json')).json();
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H); renderer.shadowMap.enabled = true; document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xeef1f5); THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.5));
+const sun = new THREE.DirectionalLight(0xffffff, 2.0); sun.position.set(1.0, -1.6, 3); sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096); Object.assign(sun.shadow.camera, { left: -1.5, right: 1.5, top: 1.5, bottom: -1.5 }); scene.add(sun);
+const mat = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, ...o });
+function box(sx, sy, sz, c, x, y, z) { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat(c)); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; scene.add(m); return m; }
+function label(text, x, y, z, color = '#1d2b3a', size = 0.06) {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 256; const g = c.getContext('2d');
+  g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.roundRect(8, 8, 1008, 240, 40); g.fill();
+  g.fillStyle = color; g.font = 'bold 84px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const L = text.split('\n'); L.forEach((l, i) => g.fillText(l, 512, 128 + (i - (L.length - 1) / 2) * 92, 980));
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+  s.scale.set(size * 4, size, 1); s.position.set(x, y, z); s.renderOrder = 10; scene.add(s);
+}
+box(1.8, 1.0, 0.04, 0xc8a27a, 0.35, 0, -0.02);
+for (const [x, y] of [[-0.5, -0.45], [1.2, -0.45], [-0.5, 0.45], [1.2, 0.45]]) box(0.05, 0.05, 0.71, 0x6b4f36, x, y, -0.395);
+box(6, 6, 0.01, 0xd9dde3, 0, 0, -0.755);
+const stand = new THREE.Mesh(await new Promise(r => new STLLoader().load('boom_assembled.stl', r)), mat(0x2b2d33, { roughness: 0.7 }));
+stand.scale.setScalar(0.001); stand.castShadow = true; scene.add(stand);
+for (const [x, y] of S.rings) { const can = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.033, 0.122, 40), mat(0xb8c2cc, { metalness: 0.7, roughness: 0.3 })); can.rotation.x = Math.PI / 2; can.position.set(x / 1000, y / 1000, 0.0024 + 0.061); can.castShadow = true; scene.add(can); }
+const L = S.lens_mm.map(v => v / 1000), b = S.body;
+// C270 body: long axis along world Y, lens facing down
+box(b.height / 1000, b.width / 1000, b.depth / 1000, 0x111111, L[0], L[1], L[2] + b.depth / 2000);
+const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.003, 32), mat(0x3a4a6a, { metalness: 0.8 })); lens.rotation.x = Math.PI / 2; lens.position.set(L[0], L[1], L[2] - 0.001); scene.add(lens);
+// footprint for 55 and 60 degree diagonal FOV (16:9), long axis along Y
+for (const [fov, col, op] of [[60, 0xe67e22, 0.10], [55, 0xe67e22, 0.22]]) {
+  const t = Math.tan(fov * Math.PI / 360) / Math.hypot(16, 9);
+  const hy = 16 * t * L[2], hx = 9 * t * L[2];
+  const fp = new THREE.Mesh(new THREE.PlaneGeometry(2 * hx, 2 * hy), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false }));
+  fp.position.set(L[0], L[1], 0.001 + fov * 1e-5); scene.add(fp);
+  if (fov === 55) {
+    const P = new THREE.Vector3(...L), pts = [];
+    const cs = [[hx, hy], [hx, -hy], [-hx, -hy], [-hx, hy]].map(([dx, dy]) => new THREE.Vector3(L[0] + dx, L[1] + dy, 0.002));
+    cs.forEach((c, i) => pts.push(P, c, c, cs[(i + 1) % 4]));
+    scene.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xe67e22 })));
+    label(`top-down view ≈ ${(2 * hy).toFixed(2)} × ${(2 * hx).toFixed(2)} m (55°)`, L[0], -0.62, 0.05, '#b35900', 0.06);
+  }
+}
+const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.036, 0.1, 40), mat(0x2e86de)); mug.rotation.x = Math.PI / 2; mug.position.set(L[0] + 0.05, 0.08, 0.05); mug.castShadow = true; scene.add(mug);
+label('C270, straight down\nlens ≈ ' + L[2].toFixed(2) + ' m above table', L[0] + 0.05, 0, L[2] + 0.2, '#b35900');
+label('leg 1.0 m (5 printed segments)', -0.12, 0.25, 0.55, '#1d2b3a', 0.05);
+label('arm ≈ 0.47 m (2 segments + head)', 0.24, 0.0, 1.12, '#1d2b3a', 0.05);
+label('base: 4 full cans as ballast\n+ tape it to the table', -0.02, -0.25, 0.22, '#1d2b3a', 0.05);
+window.shoot = (pos, look, fov = 40) => { const c = new THREE.PerspectiveCamera(fov, W / H, 0.005, 20); c.up.set(0, 0, 1); c.position.set(...pos); c.lookAt(...look); renderer.render(scene, c); };
+window.ready = true;
+</script></body></html>

@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Talking Bear</title>
+<style>
+  :root {
+    --blue: #003262;
+    --gold: #FDB515;
+    --bg1: #e9eef6;
+    --bg2: #c9d6ea;
+    --ink: #10223d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 50% 30%, var(--bg1), var(--bg2));
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--ink);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; padding: 16px; overflow: hidden;
+  }
+  #stage { width: min(92vw, 460px, 62vh); aspect-ratio: 1214 / 1296; }
+  /* fade the cut-off bottom edge so the idle sway never shows a hard line */
+  canvas {
+    width: 100%; height: 100%; display: block;
+    -webkit-mask-image: linear-gradient(#000 92%, transparent);
+            mask-image: linear-gradient(#000 92%, transparent);
+  }
+  #caption {
+    min-height: 2.8em; max-width: min(92vw, 520px); text-align: center;
+    font-size: 17px; line-height: 1.4; opacity: 0; transition: opacity .25s;
+  }
+  #caption.on { opacity: 1; }
+  form { display: flex; gap: 8px; width: min(92vw, 520px); }
+  input {
+    flex: 1; min-width: 0; padding: 12px 14px; border-radius: 12px; border: 2px solid #b8c6dc;
+    font-size: 16px; background: #fff; color: var(--ink); outline: none;
+  }
+  input:focus { border-color: var(--blue); }
+  button {
+    padding: 12px 18px; border-radius: 12px; border: 0; font-size: 16px; font-weight: 600;
+    background: var(--blue); color: var(--gold); cursor: pointer;
+  }
+  button.ghost { background: transparent; color: var(--blue); border: 2px solid var(--blue); }
+  button.ghost.on { background: var(--gold); border-color: var(--gold); }
+</style>
+</head>
+<body>
+
+<div id="stage"><canvas id="bear" width="1214" height="1296" aria-label="Cal bear"></canvas></div>
+
+<div id="caption"></div>
+
+<form id="chat" autocomplete="off">
+  <input id="msg" placeholder="Say something to the bear…">
+  <button type="submit">Send</button>
+  <button type="button" id="mic" class="ghost" title="Bear lip-syncs to your microphone">Mic</button>
+</form>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const cv = $('bear'), ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const caption = $('caption');
+  const img = new Image();
+  img.src = 'bear.png';
+
+  // ---------- face geometry, in bear.png pixels ----------
+  // centre line of the black smile stroke: the mouth splits open along it, so the
+  // top half of the stroke becomes the upper lip edge and the bottom half the lower lip
+  const SMILE = [[428,787],[440,799],[450,805],[460,816],[470,829],[480,838],[490,847],[500,852],
+    [510,854],[520,855],[530,857],[560,859],[600,860],[640,859],[680,857],[700,855],[710,853],
+    [720,849],[730,842],[740,833],[750,823],[760,808],[770,801],[780,796],[790,790]];
+  const MOUTH_X0 = 428, MOUTH_X1 = 790, MOUTH_CX = 609, MOUTH_HALF = 181;
+  const JAW_L = 398, JAW_R = 818;   // front muzzle block, which carries the jaw
+  const CHIN = 962;                 // bottom of the muzzle incl. the shadow under it
+  const MAX_DROP = 82;              // jaw drop at full "ah", px
+  const STRIP = 1;
+  const EYES = [[381, 476, 136, 170], [697, 476, 136, 170]];
+  // the head is cut from the body along the bottom of the fur, just above the collar,
+  // and turns about a pivot in the neck
+  // (the shoulder tops reach up to y≈919 either side of the neck, so the cut steps around them)
+  const HEAD = [[0, 0], [1214, 0], [1214, 916], [945, 916], [935, 945], [855, 972],
+    [365, 972], [280, 945], [268, 916], [0, 916]];
+  const BODY = [[0, 914], [270, 914], [282, 935], [930, 935], [947, 914], [1214, 914],
+    [1214, 1296], [0, 1296]];
+  const PIVOT_X = 607, PIVOT_Y = 980;
+
+  function polyPath(pts) {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.closePath();
+  }
+
+  function cutY(x) {
+    if (x <= SMILE[0][0]) return SMILE[0][1];
+    for (let i = 1; i < SMILE.length; i++) {
+      const [x1, y1] = SMILE[i];
+      if (x <= x1) {
+        const [x0, y0] = SMILE[i - 1];
+        return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+      }
+    }
+    return SMILE[SMILE.length - 1][1];
+  }
+
+  // how far the lower lip drops at x, as a fraction of the chin drop;
+  // rounder vowels (oo, w) pinch the corners in more
+  function lipShape(x, round) {
+    const a = Math.abs((x - MOUTH_CX) / MOUTH_HALF);
+    if (a >= 1) return 0;
+    return Math.pow(1 - Math.pow(a, 2.2), 0.45 + round * 0.9);
+  }
+
+  function drawFace(open, round) {
+    ctx.save();
+    polyPath(HEAD);
+    ctx.clip();
+    ctx.drawImage(img, 0, 0);
+    ctx.restore();
+    const drop = open * MAX_DROP;
+    if (drop < 0.6) return;
+
+    // mouth cavity, between the upper lip and the dropped lower lip
+    ctx.save();
+    ctx.beginPath();
+    for (let x = MOUTH_X0; x <= MOUTH_X1; x += 2) ctx.lineTo(x, cutY(x));
+    for (let x = MOUTH_X1; x >= MOUTH_X0; x -= 2) ctx.lineTo(x, cutY(x) + drop * lipShape(x, round) + 1);
+    ctx.closePath();
+    ctx.clip();
+    const lipY = cutY(MOUTH_CX);
+    const g = ctx.createLinearGradient(0, lipY, 0, lipY + drop);
+    g.addColorStop(0, '#120405');
+    g.addColorStop(1, '#4a1210');
+    ctx.fillStyle = g;
+    ctx.fillRect(MOUTH_X0, 760, MOUTH_X1 - MOUTH_X0, 220);
+    // tongue rests on the lower lip and is mostly hidden on small openings
+    const tw = MOUTH_HALF * (1.05 - round * 0.35), th = 16 + drop * 0.42;
+    const ty = lipY + drop - th * 0.55;
+    ctx.fillStyle = '#b8434b';
+    ctx.beginPath();
+    ctx.roundRect(MOUTH_CX - tw / 2, ty, tw, th + 20, [26, 26, 0, 0]);
+    ctx.fill();
+    ctx.fillStyle = '#d4646b';
+    ctx.fillRect(MOUTH_CX - tw * 0.3, ty + 6, tw * 0.6, 7);
+    // depth: darken whatever sits just under the upper lip
+    const sh = ctx.createLinearGradient(0, lipY, 0, lipY + 22);
+    sh.addColorStop(0, 'rgba(10,2,2,.85)');
+    sh.addColorStop(1, 'rgba(10,2,2,0)');
+    ctx.fillStyle = sh;
+    ctx.fillRect(MOUTH_X0, lipY - 40, MOUTH_X1 - MOUTH_X0, 62);
+    ctx.restore();
+
+    // jaw: each thin column of the lower muzzle is redrawn from its smile cut down to
+    // the chin, so the chin drops rigidly and the skin by the corners stretches
+    // (sub-pixel positions, so the corners curve instead of stair-stepping)
+    const chinY = CHIN + drop;
+    for (let x = JAW_L; x < JAW_R; x += STRIP) {
+      const top = cutY(x + STRIP / 2);
+      const dy = top + drop * lipShape(x + STRIP / 2, round);
+      ctx.drawImage(img, x, top, STRIP, CHIN - top, x, dy, STRIP, chinY - dy);
+    }
+
+    // soft shadow the dropped chin casts on the neck
+    const cs = ctx.createLinearGradient(0, chinY, 0, chinY + 34);
+    cs.addColorStop(0, 'rgba(40,12,0,.55)');
+    cs.addColorStop(1, 'rgba(40,12,0,0)');
+    ctx.fillStyle = cs;
+    ctx.fillRect(JAW_L + 10, chinY, JAW_R - JAW_L - 20, 34);
+  }
+
+  // blocky pupils that sit inside the white eye blocks; lx, ly in -1..1
+  function drawEyes(lx, ly) {
+    const pw = 58, ph = 74;
+    for (const [x, y, w, h] of EYES) {
+      const px = x + w / 2 - pw / 2 + lx * (w / 2 - pw / 2 - 12);
+      const py = y + h / 2 - ph / 2 + 4 + ly * (h / 2 - ph / 2 - 14);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x + 4, y + 2, w - 8, h - 4);
+      ctx.clip();
+      ctx.fillStyle = '#21140c';
+      ctx.beginPath();
+      ctx.roundRect(px, py, pw, ph, 7);
+      ctx.fill();
+      // voxel bevel: lighter top-left edge, darker bottom-right
+      ctx.fillStyle = '#3a2618';
+      ctx.fillRect(px + 5, py + 4, pw - 10, 6);
+      ctx.fillStyle = '#0f0805';
+      ctx.fillRect(px + 5, py + ph - 9, pw - 10, 6);
+      // catchlights
+      ctx.fillStyle = '#fffaf0';
+      ctx.fillRect(px + 10, py + 13, 17, 17);
+      ctx.globalAlpha = 0.8;
+      ctx.fillRect(px + pw - 19, py + ph - 24, 8, 8);
+      ctx.restore();
+    }
+  }
+
+  function drawLids(c) {
+    if (c < 0.03) return;
+    for (const [x, y, w, h] of EYES) {
+      const lh = Math.round(h * Math.min(1, c));
+      const g = ctx.createLinearGradient(0, y, 0, y + h);
+      g.addColorStop(0, '#8f4a16');
+      g.addColorStop(1, '#a8591c');
+      ctx.fillStyle = g;
+      ctx.fillRect(x, y, w, lh);
+      ctx.fillStyle = '#3d1c06';
+      ctx.fillRect(x, y + lh - 9, w, 9);
+    }
+  }
+
+  // ---------- springs (slightly under-damped, like a real jaw) ----------
+  function spring(k, zeta) { return { x: 0, v: 0, t: 0, k, c: 2 * zeta * Math.sqrt(k) }; }
+  function step(s, dt, k = s.k, c = s.c) {
+    s.v += ((s.t - s.x) * k - s.v * c) * dt;
+    s.x += s.v * dt;
+  }
+  const jaw = spring(900, 0.8);
+  const rnd = spring(500, 0.9);
+  const lid = spring(2600, 1);
+  const sway = spring(30, 0.9);
+  // eyes dart quickly and settle, like saccades
+  const lookX = spring(700, 0.85), lookY = spring(700, 0.85);
+  // the head follows the same target, but heavier, so the eyes lead and it catches up
+  const headX = spring(45, 0.8), headY = spring(45, 0.8);
+  const HARD_K = 2400, HARD_C = 2 * 0.95 * Math.sqrt(HARD_K);
+
+  // ---------- text -> mouth shapes ----------
+  // [jaw open 0..1, lip rounding 0..1]
+  const SHAPES = {
+    a: [1, 0.1], e: [0.62, 0], i: [0.5, 0], o: [0.75, 0.85], u: [0.45, 1], y: [0.45, 0],
+    w: [0.2, 1], m: [0, 0.2], b: [0, 0.1], p: [0, 0.1], f: [0.12, 0], v: [0.12, 0],
+    l: [0.35, 0], n: [0.28, 0], t: [0.25, 0], d: [0.28, 0], s: [0.18, 0], z: [0.18, 0],
+    c: [0.3, 0], k: [0.35, 0], g: [0.35, 0], q: [0.3, 0.6], x: [0.25, 0], j: [0.3, 0.4],
+    h: [0.5, 0], r: [0.35, 0.45],
+  };
+  const DIGRAPHS = {
+    th: [0.22, 0, 80], sh: [0.25, 0.6, 90], ch: [0.25, 0.6, 90], oo: [0.45, 1, 150],
+    ou: [0.6, 0.8, 150], ee: [0.5, 0, 140], ea: [0.55, 0, 140], ng: [0.3, 0, 80],
+    ph: [0.12, 0, 80], wh: [0.2, 1, 80],
+  };
+  const isVowel = ch => 'aeiouy'.includes(ch);
+  const isLetter = ch => ch >= 'a' && ch <= 'z';
+
+  // keyframes at estimated times, plus char index -> time so TTS word events can resync
+  function buildTrack(text) {
+    const s = text.toLowerCase();
+    const keys = [], at = new Float64Array(s.length + 1);
+    const loud = /!/.test(s) ? 1.08 : 1;
+    let t = 0, gain = 1, stressed = false;
+    for (let i = 0; i < s.length; i++) {
+      at[i] = t;
+      const ch = s[i], nx = s[i + 1] || ' ';
+      if (ch === "'") continue;
+      if (!isLetter(ch)) {
+        const pause = /[.!?]/.test(ch) ? 380 : /[,;:]/.test(ch) ? 200 : /\s/.test(ch) ? 30 : 60;
+        keys.push({ t, open: 0.03, round: 0.1, hard: false });
+        t += pause;
+        gain = (0.82 + Math.random() * 0.3) * loud;
+        stressed = false;
+        continue;
+      }
+      let open, round, dur;
+      const di = DIGRAPHS[ch + nx];
+      if (di) {
+        [open, round, dur] = di;
+        at[++i] = t;
+      } else {
+        [open, round] = SHAPES[ch] || [0.3, 0];
+        dur = isVowel(ch) ? 105 : 62;
+        // silent trailing e ("make", "here")
+        if (ch === 'e' && !isLetter(nx) && isLetter(s[i - 1] || '') && isLetter(s[i - 2] || '')) {
+          open = 0.15; dur = 35;
+        }
+      }
+      if (isVowel(ch) && !stressed) { open *= 1.12; dur *= 1.15; stressed = true; }
+      keys.push({ t, open: Math.min(1, open * gain), round, hard: 'mbp'.includes(ch) });
+      t += dur * (0.85 + Math.random() * 0.3);
+    }
+    at[s.length] = t;
+    keys.push({ t, open: 0, round: 0.1, hard: false });
+    return { keys, at, t: 0, i: 0, end: t + 150 };
+  }
+
+  function sampleTrack(tr, t) {
+    const k = tr.keys;
+    while (tr.i + 1 < k.length && k[tr.i + 1].t <= t) tr.i++;
+    while (tr.i > 0 && k[tr.i].t > t) tr.i--;
+    const a = k[tr.i], b = k[tr.i + 1] || a;
+    // coarticulation: drift toward the next shape over the end of this one
+    const f = (t - a.t) / Math.max(1, b.t - a.t);
+    const w = f > 0.6 ? (f - 0.6) / 0.4 * 0.5 : 0;
+    return {
+      open: a.open + (b.open - a.open) * w,
+      round: a.round + (b.round - a.round) * w,
+      hard: a.hard && w < 0.3,
+    };
+  }
+
+  // ---------- drivers ----------
+  // mode: 'idle' | 'text' (built from words) | 'audio' (real waveform) | 'manual' (setLevel)
+  let mode = 'idle', track = null, trackRunning = false, manualLevel = 0;
+  let analyser = null, tbuf = null, fbuf = null, audioCtx = null, env = 0;
+
+  function ensureCtx() {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+  function useSource(src) {
+    const ac = ensureCtx();
+    analyser = ac.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.3;
+    tbuf = new Float32Array(analyser.fftSize);
+    fbuf = new Float32Array(analyser.frequencyBinCount);
+    src.connect(analyser);
+    mode = 'audio';
+    return analyser;
+  }
+
+  function audioTarget(dt) {
+    analyser.getFloatTimeDomainData(tbuf);
+    let sum = 0;
+    for (let i = 0; i < tbuf.length; i++) sum += tbuf[i] * tbuf[i];
+    const db = 20 * Math.log10(Math.sqrt(sum / tbuf.length) + 1e-9);
+    const lvl = Math.min(1, Math.max(0, (db + 48) / 30));
+    // fast attack, slower release, like a jaw that snaps open and settles shut
+    env += (lvl - env) * Math.min(1, dt * (lvl > env ? 30 : 11));
+    // dark, low-heavy sound reads as rounded lips (oo/oh); bright sound as spread (ee/s)
+    analyser.getFloatFrequencyData(fbuf);
+    const hz = audioCtx.sampleRate / analyser.fftSize;
+    let lo = 0, hi = 0;
+    for (let i = Math.round(200 / hz); i < Math.round(900 / hz); i++) lo += 10 ** (fbuf[i] / 10);
+    for (let i = Math.round(1500 / hz); i < Math.round(4000 / hz); i++) hi += 10 ** (fbuf[i] / 10);
+    const round = Math.min(1, Math.max(0, (lo / (lo + hi + 1e-12) - 0.55) / 0.4));
+    return { open: env < 0.06 ? 0 : Math.pow(env, 0.8), round, hard: false };
+  }
+
+  // ---------- main loop ----------
+  let last = performance.now(), time = 0, nextBlink = 1.2, blinkHold = 0, talk = 0;
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now; time += dt;
+
+    let tgt = { open: 0, round: 0.15, hard: false };
+    if (mode === 'text' && track) {
+      if (trackRunning) track.t += dt * 1000;
+      // the eye expects the mouth slightly ahead of the sound
+      tgt = sampleTrack(track, track.t + 45);
+      if (track.t > track.end) { trackRunning = false; track = null; mode = 'idle'; }
+    } else if (mode === 'audio' && analyser) {
+      tgt = audioTarget(dt);
+    } else if (mode === 'manual') {
+      tgt.open = manualLevel;
+    }
+    // a little life in the jaw while talking, so held vowels are never frozen
+    const live = tgt.open > 0.08 ? 1 + 0.06 * Math.sin(time * 23) * Math.sin(time * 7.3) : 1;
+    jaw.t = tgt.open * live;
+    rnd.t = tgt.round;
+
+    nextBlink -= dt;
+    if (nextBlink <= 0 && blinkHold <= 0) { lid.t = 1; blinkHold = 0.075; }
+    if (blinkHold > 0) {
+      blinkHold -= dt;
+      if (blinkHold <= 0) {
+        lid.t = 0;
+        nextBlink = Math.random() < 0.18 ? 0.18 : 2 + Math.random() * 4;
+      }
+    }
+
+    // gaze: follow the pointer; when it's idle, look around now and then,
+    // and look back at the viewer while talking
+    pointerIdle += dt;
+    nextGlance -= dt;
+    if (pointerIdle < 3) {
+      lookX.t = pointer.x; lookY.t = pointer.y;
+    } else if (talk > 0.05) {
+      lookX.t = 0; lookY.t = 0.1;
+    } else if (nextGlance <= 0) {
+      const away = Math.random() < 0.35;
+      lookX.t = away ? (Math.random() * 2 - 1) * 0.9 : (Math.random() - 0.5) * 0.3;
+      lookY.t = away ? (Math.random() * 2 - 1) * 0.6 : (Math.random() - 0.5) * 0.2;
+      nextGlance = away ? 0.8 + Math.random() : 1.5 + Math.random() * 2.5;
+    }
+
+    for (let h = dt; h > 0; h -= 0.004) {
+      const sdt = Math.min(0.004, h);
+      if (tgt.hard) step(jaw, sdt, HARD_K, HARD_C); else step(jaw, sdt);
+      step(rnd, sdt); step(lid, sdt); step(lookX, sdt); step(lookY, sdt);
+    }
+    headX.t = lookX.t; headY.t = lookY.t;
+    step(headX, dt); step(headY, dt);
+    // lips meet and stop; they don't pass through each other
+    if (jaw.x < 0) { jaw.x = 0; jaw.v = Math.max(0, jaw.v); }
+    talk += (jaw.x - talk) * Math.min(1, dt * 4);
+    sway.t = talk * 1.2;
+    step(sway, dt);
+
+    if (img.complete && img.naturalWidth) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      // body: breathing stretch anchored at the bottom edge
+      const breathe = Math.sin(time * 1.7) * 0.004 + sway.x * 0.006;
+      ctx.translate(W / 2, H);
+      ctx.scale(1, 1 + breathe);
+      ctx.translate(-W / 2, -H);
+      // neck behind the head, shows if the head lifts
+      ctx.fillStyle = '#3c1a04';
+      ctx.fillRect(370, 900, 480, 60);
+      ctx.save();
+      polyPath(BODY);
+      ctx.clip();
+      ctx.drawImage(img, 0, 0);
+      ctx.restore();
+
+      // head: slides and tilts toward where it's looking, plus a slow idle lean
+      // and a small nod while talking
+      const hx = Math.max(-1.2, Math.min(1.2, headX.x)), hy = Math.max(-1.2, Math.min(1.2, headY.x));
+      const tilt = (hx * 4 + Math.sin(time * 0.6) * 0.5 + Math.sin(time * 2.1) * sway.x * 0.8) * Math.PI / 180;
+      ctx.save();
+      ctx.translate(PIVOT_X + hx * 20, PIVOT_Y + hy * 10 + sway.x * 3);
+      ctx.rotate(tilt);
+      ctx.scale(1, 1 - hy * 0.025);
+      ctx.translate(-PIVOT_X, -PIVOT_Y);
+      drawFace(Math.min(1.08, jaw.x), Math.min(1, Math.max(0, rnd.x)));
+      // the head has already turned part of the way, so the eyes need to go less far
+      drawEyes(lookX.x - hx * 0.4, lookY.x - hy * 0.4);
+      drawLids(lid.x);
+      ctx.restore();
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  let pointer = { x: 0, y: 0 }, pointerIdle = 99, nextGlance = 1;
+  window.addEventListener('pointermove', e => {
+    const r = cv.getBoundingClientRect();
+    // eye level sits ~43% down the image
+    pointer.x = Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / (r.width * 0.6)));
+    pointer.y = Math.max(-1, Math.min(1, (e.clientY - (r.top + r.height * 0.43)) / (r.height * 0.6)));
+    pointerIdle = 0;
+  });
+  document.addEventListener('pointerleave', () => { pointerIdle = 99; });
+
+  // ---------- speaking ----------
+  let captionTimer;
+  function showCaption(text) {
+    clearTimeout(captionTimer);
+    caption.textContent = text;
+    caption.classList.add('on');
+  }
+  function hideCaption(delay = 1200) {
+    captionTimer = setTimeout(() => caption.classList.remove('on'), delay);
+  }
+
+  function say(text) {
+    showCaption(text);
+    track = buildTrack(text);
+    mode = 'text';
+    trackRunning = false;
+    const begin = () => { if (track) { track.t = 0; track.i = 0; trackRunning = true; } };
+    const done = () => { if (track) track.end = Math.min(track.end, track.t + 80); trackRunning = true; hideCaption(); };
+    const synth = window.speechSynthesis;
+    if (!synth) { begin(); hideCaption(track.end + 400); return; }
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.pitch = 0.75; u.rate = 1.0;
+    const voices = synth.getVoices();
+    const v = voices.find(v => /Daniel|Fred|Alex|Male|Google UK English Male/i.test(v.name) && /^en/i.test(v.lang))
+           || voices.find(v => /^en/i.test(v.lang));
+    if (v) u.voice = v;
+    let started = false;
+    // start moving when the voice actually starts, not when it was queued
+    u.onstart = () => { started = true; begin(); };
+    // resync to the word the voice is really on
+    u.onboundary = e => {
+      if (track && e.charIndex != null && e.charIndex < track.at.length) {
+        track.t = track.at[e.charIndex];
+        trackRunning = true;
+      }
+    };
+    u.onend = u.onerror = done;
+    synth.speak(u);
+    // no audible voice: still mouth the line at the estimated pace
+    setTimeout(() => { if (!started && track) { begin(); hideCaption(track.end + 400); } }, 700);
+  }
+
+  // placeholder replies — swap `reply()` for your real backend
+  const openers = ["Go Bears!", "Hey there!", "Oh, nice.", "Hmm, let me think.", "Ha!"];
+  function reply(msg) {
+    const m = msg.trim();
+    if (/^(hi|hey|hello|yo|sup)\b/i.test(m)) return "Hey! Go Bears! What's on your mind today?";
+    if (/\?$/.test(m)) return "Great question. I'm a bear, so honestly I'd say: probably honey. But tell me more!";
+    return `${openers[Math.floor(Math.random() * openers.length)]} You said, "${m}". I'm all ears. Well, two ears.`;
+  }
+
+  $('chat').addEventListener('submit', e => {
+    e.preventDefault();
+    const m = $('msg').value;
+    if (!m.trim()) return;
+    $('msg').value = '';
+    setTimeout(() => say(reply(m)), 350);
+  });
+  if (window.speechSynthesis) speechSynthesis.onvoiceschanged = () => {};
+
+  let micStream = null;
+  $('mic').addEventListener('click', async () => {
+    const btn = $('mic');
+    if (micStream) {
+      micStream.getTracks().forEach(t => t.stop());
+      micStream = null; mode = 'idle'; btn.classList.remove('on');
+      return;
+    }
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      useSource(ensureCtx().createMediaStreamSource(micStream));
+      btn.classList.add('on');
+    } catch (err) {
+      showCaption("I can't hear you: microphone access was blocked.");
+      hideCaption(2500);
+    }
+  });
+
+  // ---------- public API for hooking up real TTS ----------
+  window.Bear = {
+    // speak text with browser TTS, mouth shaped from the words
+    say,
+    // mouth a line without TTS (e.g. you play the audio yourself and have no stream)
+    mouth(text) { track = buildTrack(text); mode = 'text'; trackRunning = true; },
+    // drive the mouth from an <audio>/<video> element's real waveform
+    attachAudio(el) {
+      const src = ensureCtx().createMediaElementSource(el);
+      const a = useSource(src);
+      a.connect(audioCtx.destination);
+      return a;
+    },
+    // drive the mouth from a MediaStream (e.g. WebRTC voice)
+    attachStream(stream) { return useSource(ensureCtx().createMediaStreamSource(stream)); },
+    // connect any Web Audio node (e.g. a Cartesia PCM player's output)
+    attachNode(node) { return useSource(node); },
+    // set mouth openness directly, 0..1; pass null to release
+    setLevel(v) { if (v == null) { mode = 'idle'; manualLevel = 0; } else { mode = 'manual'; manualLevel = Math.max(0, Math.min(1, v)); } },
+    caption: showCaption,
+  };
+
+  // ?level=0.8 freezes the mouth open, for checking the jaw geometry
+  const lv = new URLSearchParams(location.search).get('level');
+  if (lv != null) window.Bear.setLevel(parseFloat(lv));
+  // ?look=1,-0.5 pins the gaze, for checking the head turn
+  const lk = new URLSearchParams(location.search).get('look');
+  if (lk) { [pointer.x, pointer.y] = lk.split(',').map(Number); pointerIdle = -1e9; }
+})();
+</script>
+</body>
+</html>

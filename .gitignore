@@ -11,3 +11,9 @@ node_modules/
 *.pt
 *.onnx
 .DS_Store
+
+# Fetch.ai agent secret seed and runtime storage: keep local
+agents/.seed
+agent*_data.json
+# separate git repository (its own branch)
+desk-voice-cartesia/

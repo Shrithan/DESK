@@ -9,6 +9,9 @@
     # accept tilt_update/tilt_command on ws://HOST:PORT/ws/tilt; key_state is served on /ws/keys
     python -m backend.tilt_keys.run --input ws --backend pynput,websocket
 
+    # also serve the agent control API on ws://HOST:PORT/ws/control (used by the DESK Fetch.ai agents)
+    python -m backend.tilt_keys.run --input ws --backend pynput,websocket --control
+
 Backend: --backend or TILT_KEYS_BACKEND (default "log"). Config: --config or TILT_KEYS_CONFIG.
 All keys are released on exit, Ctrl+C, SIGTERM, stale input, and crashes.
 """
@@ -35,14 +38,17 @@ from backend.tilt_keys.backends import (
     parse_backend_names,
 )
 from backend.tilt_keys.config import TiltKeyConfig
+from backend.tilt_keys.control import ControlService
 from backend.tilt_keys.controller import TiltKeyController
 from backend.tilt_keys.output import KeyBackend
+from backend.tilt_keys.telemetry import Telemetry
 
 log = logging.getLogger("tilt_keys.run")
 
 Source = Callable[[TiltKeyController], Awaitable[None]]
 TILT_PATH = "/ws/tilt"
 KEYS_PATH = "/ws/keys"
+CONTROL_PATH = "/ws/control"
 
 
 # ------------------------------------------------------------------ run loop
@@ -117,6 +123,7 @@ class WebSocketHub:
         self.host, self.port = host, port
         self.key_clients: set = set()
         self.controller: TiltKeyController | None = None
+        self.control: ControlService | None = None
         self.accept_input = False
         self.ready = asyncio.Event()
         self.bound_port: int | None = None
@@ -139,6 +146,14 @@ class WebSocketHub:
             async for message in connection:
                 self.controller.handle_message(message)
             log.info("tilt producer disconnected; stale watchdog will release keys")
+        elif path == CONTROL_PATH and self.control is not None:
+            log.info("control client connected from %s", connection.remote_address)
+            async for message in connection:
+                try:
+                    request = json.loads(message)
+                except ValueError:
+                    request = None
+                await connection.send(json.dumps(self.control.handle(request)))
         else:
             await connection.close(code=1008, reason=f"unknown path {path}")
 
@@ -179,6 +194,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--bias-right", type=float, default=0.0, help="--simulate constant lean, degrees")
     p.add_argument("--config", default=os.environ.get("TILT_KEYS_CONFIG"), help=".toml or .json config file")
     p.add_argument("--no-calibrate", action="store_true", help="skip neutral calibration (offset = 0)")
+    p.add_argument("--control", action="store_true",
+                   help=f"serve the agent control API on ws://HOST:PORT{CONTROL_PATH}")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("-v", "--verbose", action="store_true")
@@ -197,11 +214,15 @@ def main(argv: list[str] | None = None) -> None:
     if args.simulate:
         args.input = "none"
 
-    hub = WebSocketHub(args.host, args.port) if (args.input == "ws" or "websocket" in names) else None
+    hub = WebSocketHub(args.host, args.port) if (args.input == "ws" or "websocket" in names or args.control) else None
     controller_ref: list[TiltKeyController] = []
     status = lambda: (controller_ref[0].enabled, controller_ref[0].mode) if controller_ref else (True, "calibrating")  # noqa: E731
-    controller = TiltKeyController(config, build_backend(names, hub, status))
+    telemetry = Telemetry()
+    controller = TiltKeyController(config, build_backend(names, hub, status),
+                                   on_event=telemetry.on_event, on_sample=telemetry.on_sample)
     controller_ref.append(controller)
+    if hub is not None and args.control:
+        hub.control = ControlService(controller, telemetry)
     atexit.register(controller.shutdown, "atexit")  # last resort if the loop is torn down abnormally
 
     sources: list[Source] = []

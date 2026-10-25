@@ -34,6 +34,8 @@ from shared.contracts.tilt import TiltCommand, TiltUpdate, parse_tilt_message
 log = logging.getLogger(__name__)
 
 EventListener = Callable[[str, dict[str, Any]], None]
+# (local_ms, forward_deg, right_deg) after calibration/inversion/filtering; None = unavailable.
+SampleListener = Callable[[int, float | None, float | None], None]
 
 
 def monotonic_ms() -> int:
@@ -48,11 +50,13 @@ class TiltKeyController:
         *,
         clock_ms: Callable[[], int] = monotonic_ms,
         on_event: EventListener | None = None,
+        on_sample: SampleListener | None = None,
     ) -> None:
         self.config = config
         self.output = EdgeTriggeredOutput(backend)
         self._clock_ms = clock_ms
         self._on_event = on_event
+        self._on_sample = on_sample
         self._lock = threading.RLock()
         self._closed = False
 
@@ -138,6 +142,11 @@ class TiltKeyController:
 
             forward = self._process_axis("forward", forward_raw, update.timestamp_ms)
             right = self._process_axis("right", right_raw, update.timestamp_ms)
+            if self._on_sample is not None:
+                try:
+                    self._on_sample(self._last_rx_ms, forward, right)
+                except Exception:
+                    log.exception("sample listener failed")
             self._set_held(desired_keys(forward, right, self.output.held, self.config))
 
     def tick(self, now_ms: int | None = None) -> None:
@@ -166,6 +175,23 @@ class TiltKeyController:
             self._calibrator.reset()
             self.calibrated = self.config.calibration_duration_ms == 0
             self._emit("calibration_started", duration_ms=self.config.calibration_duration_ms)
+
+    def apply_config(self, config: TiltKeyConfig, reason: str = "") -> None:
+        """Swap in a new (already validated) config at runtime.
+
+        Keys are released first so a binding or threshold change can never leave a
+        stale key held. Calibration offsets are kept; filters are rebuilt.
+        """
+        with self._lock:
+            if self._closed:
+                return
+            self._set_held(frozenset())
+            self.config = config
+            self._filters = {
+                axis: OneEuroFilter(config.filter_min_cutoff_hz, config.filter_beta, config.filter_d_cutoff_hz)
+                for axis in ("forward", "right")
+            }
+            self._emit("config_applied", reason=reason)
 
     def set_enabled(self, enabled: bool) -> None:
         with self._lock:

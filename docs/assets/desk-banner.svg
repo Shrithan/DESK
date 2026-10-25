@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+<title id="title">DESK — Everyday objects. Extraordinary controls.</title><desc id="desc">A dark spatial grid with a golden tracked object, a slider and a joystick, beside the DESK wordmark.</desc>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#111e2e"/><stop offset="1" stop-color="#1c3645"/></linearGradient><pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="#83abc7" stroke-opacity=".12"/></pattern><linearGradient id="gold" x2="1" y2="1"><stop stop-color="#ffe5a0"/><stop offset="1" stop-color="#c99438"/></linearGradient></defs>
+<rect width="1200" height="380" rx="24" fill="url(#bg)"/><rect x="665" width="535" height="380" fill="url(#grid)"/>
+<path d="M665 0V380" stroke="#82a3bb" stroke-opacity=".15"/>
+<text x="58" y="57" fill="#e5c77e" font-family="Arial,sans-serif" font-size="12" letter-spacing="5">THE WORLD IS YOUR INTERFACE</text>
+<text x="51" y="192" fill="#f2f6fb" font-family="Arial,sans-serif" font-size="144" font-weight="700" letter-spacing="-8">DESK</text>
+<text x="58" y="245" fill="#d4e3ee" font-family="Arial,sans-serif" font-size="25">Everyday objects. Extraordinary controls.</text>
+<text x="58" y="291" fill="#a2b7c9" font-family="Arial,sans-serif" font-size="15">Computer vision × voice × agentic setup × real output</text>
+<rect x="58" y="321" width="216" height="26" rx="13" fill="#253e4d"/><text x="73" y="339" fill="#b5e5d4" font-family="Arial,sans-serif" font-size="11" letter-spacing="2">SEE IT. SAY IT. CONTROL IT.</text>
+<g stroke="#e7c677" fill="none"><rect x="737" y="68" width="157" height="175" rx="14" stroke-dasharray="7 6" opacity=".7"/><ellipse cx="815" cy="111" rx="42" ry="15" fill="#314557" stroke-width="2"/><path d="M773 111V195C773 217 857 217 857 195V111" fill="#273e51" stroke-width="2"/><ellipse cx="815" cy="195" rx="42" ry="15" stroke-opacity=".35"/><path d="M802 105H829M810 100L821 100" stroke-width="4"/><circle cx="815" cy="154" r="6" fill="url(#gold)"/><path d="M799 154H782M832 154H849M815 138V121M815 170V187" opacity=".6"/></g>
+<text x="744" y="267" fill="#bdd2df" font-family="Arial,sans-serif" font-size="11" letter-spacing="2">OBJECT_01 · TRACKED</text>
+<path d="M914 153H967" stroke="#a7c5d8" stroke-dasharray="4 5"/><path d="M960 148L967 153L960 158" fill="none" stroke="#a7c5d8"/>
+<rect x="994" y="78" width="130" height="212" rx="18" fill="#152a3b" stroke="#4b6578"/><text x="1013" y="108" fill="#8facbf" font-family="Arial,sans-serif" font-size="11" letter-spacing="2">CONTROL</text>
+<path d="M1025 139H1093" stroke="#617d91" stroke-width="4" stroke-linecap="round"/><circle cx="1070" cy="139" r="9" fill="url(#gold)"/><circle cx="1059" cy="217" r="31" fill="none" stroke="#617d91"/><path d="M1059 217L1072 198" stroke="#e7c677" stroke-width="5"/><circle cx="1072" cy="198" r="8" fill="url(#gold)"/>
+<text x="1016" y="269" fill="#b5e5d4" font-family="Arial,sans-serif" font-size="10" letter-spacing="2">INPUT → ACTION</text>
+</svg>

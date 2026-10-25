@@ -27,8 +27,7 @@ async function routeStudioCommand(transcript){
  const done=message=>({handled:true,message});
  if(/^(hello|hi|hey)( bear)?$/.test(text))return done('Hi! Say “start the camera,” or ask me to make a visible object a control.');
  if(/^(help|what can (you|i) (say|do)|list commands)$/.test(text))return done('I can start cameras, make visible objects into joysticks, sliders or buttons, calibrate controls, arm or stop output, and adjust camera settings.');
- if(/\b(open|show) (the )?(workspace|setup|controls|camera feeds)\b/.test(text)){$('workspace-setup').open=true;return done('Workspace controls are open below.');}
- if(/\b(close|hide) (the )?(workspace|setup|controls|camera feeds)\b/.test(text)){$('workspace-setup').open=false;return done('Workspace controls are closed.');}
+ if(/\b(open|show|close|hide) (the )?(workspace|setup|controls|camera feeds)\b/.test(text))return done('Tell me which workspace control you want to use.');
  if(/\b(stop all output|emergency stop|stop everything)\b/.test(text)){clickControl('keyboard-stop');return {handled:true,message:'All output stopped. Hands-free listening is off.',silent:true};}
  if(/\b(stop|turn off) (the )?(camera|cameras|webcam|webcams)\b/.test(text)){clickControl('studio-stop');return done('Stopping the cameras.');}
  if(/\b(start|turn on|connect) (the )?(overhead )?(camera|cameras|webcam|webcams)\b/.test(text)){if(text.includes('overhead')){$('overhead-only').checked=true;await useOverheadJoystick();}clickControl('start');return done('Starting the camera. Allow browser camera access if asked.');}
@@ -89,6 +88,26 @@ async function routeStudioCommand(transcript){
  return null;
 }
 function bearCaption(message){$('bear-response').textContent=message;}
+let bearLevel=0,bearAudioSource=null;
+function connectBearAudio(source){
+ const analyser=voiceAudio.context.createAnalyser();analyser.fftSize=256;
+ source.connect(analyser);analyser.connect(voiceAudio.context.destination);
+ bearAudioSource=source;document.body.classList.add('bear-speaking');
+ const samples=new Uint8Array(analyser.fftSize);
+ const animate=()=>{
+  if(bearAudioSource!==source||voiceAudio.source!==source){
+   if(bearAudioSource===source){bearAudioSource=null;document.body.classList.remove('bear-speaking');$('bear-avatar').style.removeProperty('--mouth-level');}
+   return;
+  }
+  analyser.getByteTimeDomainData(samples);
+  let sum=0;for(const sample of samples){const centered=(sample-128)/128;sum+=centered*centered;}
+  const rms=Math.sqrt(sum/samples.length);
+  bearLevel=bearLevel*.45+Math.min(1,rms*8)*.55;
+  $('bear-avatar').style.setProperty('--mouth-level',bearLevel.toFixed(3));
+  requestAnimationFrame(animate);
+ };
+ requestAnimationFrame(animate);
+}
 async function bearSay(message){
  bearCaption(message);
  if(!voiceConfigured||!message||voiceAudio.micBusy)return;
@@ -97,26 +116,34 @@ async function bearSay(message){
   unlockVoice();const response=await fetch('/api/voice/utterance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:message})});
   if(!response.ok){const data=await response.json();throw Error(data.error||'Cartesia speech unavailable.');}
   const buffer=await voiceAudio.context.decodeAudioData(await response.arrayBuffer());
-  const source=voiceAudio.context.createBufferSource();source.buffer=buffer;source.connect(voiceAudio.context.destination);voiceAudio.source=source;
+  const source=voiceAudio.context.createBufferSource();source.buffer=buffer;voiceAudio.source=source;connectBearAudio(source);
   await new Promise(resolve=>{source.onended=()=>{if(voiceAudio.source===source)voiceAudio.source=null;resolve();};source.start();});
  }catch(err){$('bear-state').textContent=err.message;}
  finally{voiceAudio.replyBusy=false;}
 }
 $('bear-talk').addEventListener('click',async()=>{
  if(!$('command-hands-free').checked){
-  try{unlockVoice();if(!await refreshVoiceStatus()){$('bear-state').textContent='Add CARTESIA_API_KEY to this checkout’s .env file, then try again.';return;}}
+  try{unlockVoice();if(!await refreshVoiceStatus()){$('bear-state').textContent='Cartesia API key unavailable.';return;}}
   catch(err){$('bear-state').textContent=err.message;return;}
   $('voice-enabled').checked=true;$('voice-enabled').dispatchEvent(new Event('change'));
   $('command-hands-free').checked=true;$('command-hands-free').dispatchEvent(new Event('change'));
  }
 });
 $('bear-stop').addEventListener('click',()=>{$('command-hands-free').checked=false;$('command-hands-free').dispatchEvent(new Event('change'));});
-void fetch('/api/voice/status').then(r=>r.json()).then(s=>{if(!s.configured)bearCaption('Add your Cartesia API key to this checkout’s .env file, then I can listen and speak.');}).catch(()=>{});
+$('bear-avatar').addEventListener('click',()=>{if($('command-hands-free').checked)$('bear-stop').click();else $('bear-talk').click();});
+$('bear-form').addEventListener('submit',async event=>{
+ event.preventDefault();const input=$('bear-text'),message=input.value.trim();if(!message)return;
+ input.value='';
+ if($('command-hands-free').checked){stopHandsFree();commandVersion++;commandRequest?.abort();if(commandRecorder)await finishCommand(false);}
+ try{unlockVoice();if(!voiceConfigured)await refreshVoiceStatus();await applyVoiceCommand({transcript:message,intent:{}});}
+ catch(err){void bearSay(err.message||'I could not do that.');}
+});
+void fetch('/api/voice/status').then(r=>r.json()).then(s=>{if(!s.configured)bearCaption('Cartesia API key unavailable.');}).catch(()=>{});
 setInterval(()=>{
  const listening=$('command-hands-free').checked;
  $('bear-talk').disabled=listening;$('bear-stop').disabled=!listening;
+ $('bear-avatar').setAttribute('aria-label',listening?'Stop voice conversation':'Start voice conversation');
  document.body.classList.toggle('bear-listening',listening&&!!commandRecorder);
- document.body.classList.toggle('bear-speaking',!!voiceAudio.source);
  $('bear-live').textContent=$('studio-state').textContent;
  $('bear-state').textContent=listening?($('command-status').textContent||'Listening…'):(voiceConfigured?'Cartesia ready · microphone off':'Cartesia API key needed · microphone off');
  const transcript=$('command-transcript').textContent;if(transcript)$('bear-transcript').textContent=transcript;

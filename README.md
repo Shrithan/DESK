@@ -1,7 +1,7 @@
 # Phantom vision — local webcam tracker
 
 Current demo: `.venv/bin/python -m vision.live`, then open
-http://localhost:8765 in Safari/Chrome. The bear-led voice studio is the default page. Add `CARTESIA_API_KEY` to the ignored `.env`, press **Start talking**, and say "start the overhead camera". Open **Workspace and camera setup** for camera choices and detailed controls. The connected
+http://localhost:8765 in Safari/Chrome. The bear is the entire visible interface: click it to start or stop listening, or type into the text box and press Enter. Add `CARTESIA_API_KEY` to the ignored `.env`, then say "start the overhead camera". The connected
 USB webcam is preferred automatically. Keep it still, let the scene settle, then
 move an object to see a green tracking region, details and motion trail.
 No iPhone or OBS setup is needed for this mode. **Find another object** resets

@@ -26,7 +26,7 @@ async function refreshVoiceStatus(){
 function unlockVoice(){const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)throw new Error('Audio playback is unavailable in this browser.');voiceAudio.context=voiceAudio.context||new Audio();voiceAudio.context.resume();}
 function cancelVoice(){voiceAudio.version++;voiceAudio.pending=null;voiceAudio.request?.abort();try{voiceAudio.source?.stop();}catch(_){}voiceAudio.source=null;}
 async function speakVoice(event,test=false){
- if(voiceAudio.micBusy)return;
+ if(voiceAudio.micBusy||voiceAudio.replyBusy)return;
  if(!test&&!$('voice-enabled').checked)return;
  if(voiceAudio.busy){voiceAudio.pending={event,stamp:performance.now()};return;}
  if(!test&&performance.now()-lastVoiceAt<2500)return;
@@ -38,7 +38,7 @@ async function speakVoice(event,test=false){
   if(!response.ok){const data=await response.json();throw new Error(data.error||'Voice request failed.');}
   const bytes=await response.arrayBuffer();if(version!==voiceAudio.version)return;
   const audio=await voiceAudio.context.decodeAudioData(bytes);if(version!==voiceAudio.version)return;
-  const source=voiceAudio.context.createBufferSource();voiceAudio.source=source;source.buffer=audio;source.connect(voiceAudio.context.destination);
+  const source=voiceAudio.context.createBufferSource();voiceAudio.source=source;source.buffer=audio;if(typeof connectBearAudio==='function')connectBearAudio(source);else source.connect(voiceAudio.context.destination);
   voiceStatus('Cartesia · speaking');await new Promise(resolve=>{source.onended=()=>{if(voiceAudio.source===source)voiceAudio.source=null;resolve();};source.start();});
   if(version===voiceAudio.version)voiceStatus('Cartesia · ready');
  }catch(err){if(version===voiceAudio.version){voiceStatus(err.name==='AbortError'?'Voice request timed out; tracking continues.':err.message);$('voice-enabled').checked=false;voiceAudio.pending=null;}}
@@ -63,7 +63,7 @@ async function speakMappingReply(replyId){
   if(!r.ok){const data=await r.json();throw Error(data.error||'Spoken reply unavailable.');}
   const bytes=await r.arrayBuffer();if(version!==voiceAudio.version)return;
   const audio=await voiceAudio.context.decodeAudioData(bytes);if(version!==voiceAudio.version)return;
-  const source=voiceAudio.context.createBufferSource();source.buffer=audio;voiceAudio.source=source;source.connect(voiceAudio.context.destination);source.onended=()=>{if(voiceAudio.source===source)voiceAudio.source=null;};source.start();voiceStatus('Cartesia · Daniel · agent reply');
+  const source=voiceAudio.context.createBufferSource();source.buffer=audio;voiceAudio.source=source;if(typeof connectBearAudio==='function')connectBearAudio(source);else source.connect(voiceAudio.context.destination);source.onended=()=>{if(voiceAudio.source===source)voiceAudio.source=null;};source.start();voiceStatus('Cartesia · Daniel · agent reply');
  }catch(err){if(version===voiceAudio.version)voiceStatus(err.message);}
  finally{clearTimeout(timeout);voiceAudio.replyBusy=false;if(voiceAudio.request===controller)voiceAudio.request=null;}
 }

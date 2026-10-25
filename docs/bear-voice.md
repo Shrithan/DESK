@@ -1,14 +1,14 @@
 # Bear voice studio
 
-The root dashboard now opens on the California bear. The supplied sticker image is served locally from `vision/web/cal-bear.webp`. Its listening and speaking states are shown on the portrait; Cartesia Sonic produces the voice audio, and Cartesia Ink transcribes microphone commands. The camera and detailed controls remain in **Workspace and camera setup** below the portrait.
+The root dashboard shows only the California bear and one text box. The supplied sticker image is served locally from `vision/web/cal-bear.webp`. Click the bear to start or stop listening. Type a command and press Enter to use the text box. Its mouth opening follows the actual Cartesia audio amplitude during speech; Cartesia Sonic produces the voice audio, and Cartesia Ink transcribes microphone commands. Camera and detailed control elements remain offscreen for the command handlers.
 
 ## Configure and run
 
-Add `CARTESIA_API_KEY=...` to the ignored `.env` in this checkout (not the browser or a committed file). For open-ended object-to-app mappings, also add `ASI1_API_KEY=...`. Start with `.venv/bin/python -m vision.live`; if the model has not been prepared, use `--detector motion` for moving-region tracking. Open the printed localhost URL, press **Start talking**, and grant browser microphone permission. Say **Stop listening**, press **Stop listening**, press **STOP ALL OUTPUT**, or press Escape while the dashboard is focused to end capture. The camera needs separate browser permission when first started.
+Add `CARTESIA_API_KEY=...` to the ignored `.env` in this checkout (not the browser or a committed file). For open-ended object-to-app mappings, also add `ASI1_API_KEY=...`. Start with `.venv/bin/python -m vision.live`; if the model has not been prepared, use `--detector motion` for moving-region tracking. Open the printed localhost URL, click the bear, and grant browser microphone permission. Say **Stop listening**, click the bear again, or press Escape while the dashboard is focused to end capture. The camera needs separate browser permission when first started.
 
 ## Voice commands
 
-Cartesia transcribes every spoken request. Common control commands use an explicit local command list and call the same handlers as the detailed controls. Examples:
+Cartesia transcribes every spoken request. The text box sends typed requests through the same command path. Common control commands use an explicit local command list and call the existing handlers. Examples:
 
 - “Start the overhead camera”; “stop cameras”; “refresh cameras”; “overhead only”; “two camera mode.”
 - “Reset zoom”; “lock side exposure”; “auto exposure”; “reverse X direction”; “turn off prediction.”

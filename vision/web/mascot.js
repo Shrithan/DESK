@@ -149,8 +149,15 @@ $('bear-talk').addEventListener('click',async()=>{
 });
 $('bear-stop').addEventListener('click',()=>{$('command-hands-free').checked=false;$('command-hands-free').dispatchEvent(new Event('change'));});
 $('bear-avatar').addEventListener('click',()=>{if($('command-hands-free').checked)$('bear-stop').click();else $('bear-talk').click();});
-$('bear-avatar').addEventListener('pointermove',event=>{const r=$('bear-avatar').getBoundingClientRect(),x=(event.clientX-r.left)/r.width-.5,y=(event.clientY-r.top)/r.height-.5;$('bear-avatar').style.setProperty('--bear-rx',`${(-y*12).toFixed(2)}deg`);$('bear-avatar').style.setProperty('--bear-ry',`${(x*14).toFixed(2)}deg`);});
-$('bear-avatar').addEventListener('pointerleave',()=>{$('bear-avatar').style.setProperty('--bear-rx','0deg');$('bear-avatar').style.setProperty('--bear-ry','0deg');});
+function moveBearGaze(event){
+ const avatar=$('bear-avatar'),x=Math.max(-1,Math.min(1,(event.clientX/window.innerWidth-.5)*2)),y=Math.max(-1,Math.min(1,(event.clientY/window.innerHeight-.5)*2));
+ avatar.style.setProperty('--bear-rx',`${(-y*7).toFixed(2)}deg`);
+ avatar.style.setProperty('--bear-ry',`${(x*10).toFixed(2)}deg`);
+ avatar.style.setProperty('--eye-x',`${(x*avatar.clientWidth*.018).toFixed(1)}px`);
+ avatar.style.setProperty('--eye-y',`${(y*avatar.clientWidth*.018).toFixed(1)}px`);
+}
+window.addEventListener('pointermove',moveBearGaze,{passive:true});
+window.addEventListener('blur',()=>{const avatar=$('bear-avatar');for(const name of ['--bear-rx','--bear-ry','--eye-x','--eye-y'])avatar.style.removeProperty(name);});
 $('bear-form').addEventListener('submit',async event=>{
  event.preventDefault();const input=$('bear-text'),message=input.value.trim();if(!message)return;
  input.value='';

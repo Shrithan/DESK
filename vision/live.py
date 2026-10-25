@@ -842,6 +842,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200,self.server.morph.status())
         elif path == '/api/actions/status':
             self.send(200,self.server.actions.status())
+        elif path == '/api/buttons/status':
+            self.send(200,self.server.object_buttons.status())
         elif path == '/api/keys/status':
             self.send(200,self.server.keyboard.status())
         elif path == '/api/camera/exposure':

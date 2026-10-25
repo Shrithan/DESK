@@ -50,7 +50,7 @@ function updateStudio(){
    ctx.fillStyle=pressed?'#f2dd83':'#344037';ctx.beginPath();ctx.arc(130,100,65,0,Math.PI*2);ctx.fill();
    ctx.fillStyle=pressed?'#101512':'#edf2e9';ctx.font='64px sans-serif';ctx.textAlign='center';ctx.fillText(pressed?'1':'0',130,122);ctx.textAlign='start';
    card.values.textContent=`OUTPUT ${pressed?1:0} · ${state.phase||'waiting'} · ${state.presses||0} covers`;
-   card.rotation.textContent=entry.input.previewOnly?'0 = uncovered · 1 = covered · detected-object input':'Hand-confirmed cover → one key press. Uncover to reset.';
+   card.rotation.textContent=entry.input.previewOnly?`0 = uncovered · 1 = covered${state.coverage!=null?' · hand '+Math.round(state.coverage*100)+'%':''}${state.reason?' · '+state.reason:''}`:'Hand-confirmed cover → one key press. Uncover to reset.';
    if(entry.input.previewOnly)action(card,'Relearn uncovered object',e=>void assignDetectedButton(e));else action(card,'Re-arm / learn clear view',()=>void armRealKeys(entry.id).catch(err=>keyStatus(err.message)));
   }else if(entry.type==='joystick'){
    const i=entry.input,value=i.current,stick=i.joystick;

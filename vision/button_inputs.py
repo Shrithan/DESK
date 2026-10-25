@@ -44,12 +44,18 @@ class ObjectButtons:
                         count=button.count
                         button=item['button']=CoverButton(sample['frame'],sample['bbox'],now)
                         button.count=count  # visible object moved; learn its new clear appearance
-                    if not sample['tracked'] and coverage<.08:
-                        button.phase='missing';button.since=None
                     state=button.step(sample['frame'],coverage,now)
                     # Release the binary signal as soon as the hand clears;
                     # the longer uncover dwell only debounces the next press.
                     item['state']=dict(state,value=int(state['phase']=='pressed' and coverage>.3 and state['appearance_change']>.06))
+                    item['state']['model_tracked']=bool(sample['tracked'])
+                    item['state']['reason']=(
+                        'Uncovered · ready' if state['phase']=='ready' else
+                        'Covered' if item['state']['value'] else
+                        'Hold cover briefly' if state['phase']=='covering' else
+                        'Uncover the object to learn its clear view' if state['phase']=='learning' else
+                        'No hand detected over the saved object' if coverage<.08 else
+                        'Waiting for the original clear appearance')
                 results[oid]=dict(item['state'])
             return dict(buttons=results)
 
@@ -60,3 +66,7 @@ class ObjectButtons:
 
     def assigned_ids(self):
         with self.lock:return set(self.buttons)
+
+    def status(self):
+        with self.lock:
+            return dict(buttons={oid:dict(item['state'],bbox=list(item['button'].bbox)) for oid,item in self.buttons.items()})

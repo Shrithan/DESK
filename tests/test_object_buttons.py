@@ -63,3 +63,17 @@ def test_mapping_requires_detected_uncovered_object():
     s['tracked']=True;h.amount=.9
     with pytest.raises(ValueError):m.add('other')
     assert m.update([])['buttons']=={}
+
+
+def test_clear_appearance_can_ready_button_while_semantic_tracker_is_lost():
+    m,s,n,h,step=setup()
+    # A label flicker/low-texture object can lose its semantic track immediately
+    # after enrollment even though the original object is still visibly clear.
+    for _ in range(8):state=step(False,False)
+    assert state['phase']=='ready'
+    for _ in range(6):state=step(True,False)
+    assert state['value']==1
+    for _ in range(8):state=step(False,False)
+    assert state['phase']=='ready' and state['value']==0
+    for _ in range(6):state=step(True,False)
+    assert state['value']==1 and state['presses']==2

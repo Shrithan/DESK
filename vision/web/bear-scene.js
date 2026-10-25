@@ -10,9 +10,9 @@ try{
  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
  renderer.outputColorSpace=THREE.SRGBColorSpace;
  const scene=new THREE.Scene();
- const camera=new THREE.OrthographicCamera(-2.6,2.6,2.6,-2.6,.1,40);
- camera.position.set(1.7,2.75,12);
- camera.lookAt(0,.9,0);
+ const camera=new THREE.OrthographicCamera(-2.7,2.7,2.7,-2.7,.1,40);
+ camera.position.set(0,1.05,12);
+ camera.lookAt(0,1.05,0);
  scene.add(new THREE.HemisphereLight(0xffffff,0x86a9a2,2.1));
  const sun=new THREE.DirectionalLight(0xffffff,2.65);
  sun.position.set(-3.5,7,6);scene.add(sun);
@@ -40,33 +40,38 @@ try{
   const mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);
   mesh.position.set(x,y,z);mesh.castShadow=casts;mesh.receiveShadow=true;parent.add(mesh);return mesh;
  }
- // The sweatshirt continues below the camera crop; the head is almost twice its width.
- block(body,1.42,1.9,.86,0,-1.11,-.05,navy);
+ // Broad shoulders and upper chest continue below the portrait crop.
+ block(body,2.32,1.95,.9,0,-1.16,-.05,navy);
  block(root,.78,.55,.65,0,-.28,-.06,furDark);
- block(body,1.28,.23,.95,0,-.29,.04,navyFold);
- block(body,1.12,.27,.19,0,-.42,.55,navyFold,false);
- block(body,.91,.085,.1,0,-.54,.67,gold,false);
- for(const side of [-1,1])block(body,.12,.24,.11,side*.5,-.37,.67,gold,false);
+ block(body,1.38,.23,.95,0,-.29,.04,navyFold);
+ block(body,1.36,.27,.19,0,-.42,.58,navyFold,false);
+ block(body,1.02,.085,.1,0,-.54,.7,gold,false);
+ for(const side of [-1,1])block(body,.12,.24,.11,side*.56,-.37,.7,gold,false);
  for(const side of [-1,1]){
-  block(body,.31,.92,.77,side*.77,-.85,-.07,navy);
-  block(body,.11,.52,.79,side*.89,-.88,-.04,gold,false);
-  block(body,.17,.5,.09,side*.56,-.64,.43,navyFold,false);
+  block(body,.91,.42,.83,side*1.29,-.45,-.09,navy);
+  block(body,.63,1.25,.82,side*1.49,-1.12,-.08,navy);
+  block(body,.13,.62,.84,side*1.74,-1.02,-.05,gold,false);
+  block(body,.24,.48,.09,side*.9,-.68,.43,navyFold,false);
  }
- block(headPivot,3.28,2.72,1.68,0,1.23,0,fur);
- block(headPivot,2.7,.43,1.67,0,.12,0,furDark);
+ // Overlapping broad cuboids create clipped corners, cheeks, and a tapered jaw.
+ block(headPivot,2.34,2.04,1.62,0,1.48,0,fur);
+ block(headPivot,2.5,.82,1.62,0,2.17,-.015,fur);
+ for(const side of [-1,1])block(headPivot,.78,1.14,1.48,side*1.11,1.01,.02,fur);
+ block(headPivot,2.38,.51,1.49,0,.39,.03,furDark);
+ block(headPivot,1.78,.26,1.37,0,.13,.02,furDark);
  for(const side of [-1,1]){
-  block(headPivot,.52,.55,.59,side*1.39,2.5,-.05,fur);
-  block(headPivot,.3,.32,.035,side*1.39,2.51,.265,earInner,false);
+  block(headPivot,.52,.55,.59,side*1.27,2.52,-.05,fur);
+  block(headPivot,.3,.32,.035,side*1.27,2.53,.265,earInner,false);
  }
- block(headPivot,1.55,.64,.51,0,.56,1.055,honey);
- block(headPivot,.23,.18,.2,0,.87,1.365,nose);
+ block(headPivot,1.42,.58,.49,0,.69,1.055,honey);
+ block(headPivot,.2,.17,.18,0,.93,1.355,nose);
  const eyes=[];
  for(const side of [-1,1]){
-  const eye=block(headPivot,.115,.14,.075,side*.61,1.55,.875,eyeMat,false);
+  const eye=block(headPivot,.1,.13,.075,side*.59,1.53,.85,eyeMat,false);
   eyes.push(eye);
  }
- const mouth=block(headPivot,.35,.038,.035,0,.38,1.32,mouthMat,false);
- const mouthOpen=block(headPivot,.34,.01,.036,0,.34,1.33,mouthMat,false);
+ const mouth=block(headPivot,.33,.035,.035,0,.51,1.315,mouthMat,false);
+ const mouthOpen=block(headPivot,.32,.01,.036,0,.47,1.325,mouthMat,false);
  mouthOpen.visible=false;
 
  // A stepped cap keeps its brim and lettering attached to the rotating head.
@@ -107,7 +112,7 @@ try{
   const w=host.clientWidth,h=host.clientHeight;
   if(!w||!h)return;
   renderer.setSize(w,h,false);
-  const aspect=w/h,halfHeight=2.6;
+  const aspect=w/h,halfHeight=2.7;
   camera.left=-halfHeight*aspect;camera.right=halfHeight*aspect;
   camera.top=halfHeight;camera.bottom=-halfHeight;camera.updateProjectionMatrix();
  }
@@ -119,10 +124,10 @@ try{
   const dt=Math.min(clock.getDelta(),.05);elapsed+=dt;
   const x=activePointer?targetX:0,y=activePointer?targetY:0;
   if(reduced.matches){
-   state.headY=.14+x*.14;state.headX=-.04-y*.08;state.headZ=0;state.bodyY=0;
+   state.headY=x*.14;state.headX=-y*.08;state.headZ=0;state.bodyY=0;
   }else{
-   spring('headY','vy',.14+x*.19,dt);
-   spring('headX','vx',-.04-y*.11,dt);
+   spring('headY','vy',x*.19,dt);
+   spring('headX','vx',-y*.11,dt);
    spring('headZ','vz',-x*.026,dt);
    spring('bodyY','vBody',x*.035,dt,20,9);
   }

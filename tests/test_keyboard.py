@@ -46,3 +46,18 @@ def test_local_taps_are_fixed_wasd_and_finish_disarmed():
     o,b,c,v=controller();o.test_taps()
     assert b.events==[(k,down,False) for k in 'wasd' for down in (True,False)]
     assert not o.status()['armed'] and not o.held
+
+
+def test_flight_retains_explicit_mapping_but_releases_keys_across_focus_handoff():
+    o,b,c,v=controller()
+    token=o.arm('can',retain_mapping=True)['token']
+    o.update(token,['w'],0)
+    c[0]+=1;o.tick()
+    assert o.token==token and not o.held and b.events[-1]==('w',False,False)
+    assert 'mapping retained' in o.status()['reason']
+    v[0]=False;o.update(token,['a'],1)
+    assert not o.held
+    v[0]=True;o.update(token,['a'],2)
+    assert o.held=={'a'} and b.events[-1]==('a',True,False)
+    o.disarm();assert o.token is None and not o.held
+    o.close()

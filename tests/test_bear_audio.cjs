@@ -1,0 +1,13 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('vision/web/bear/interface.js','utf8'),frames=[],levels=[],connections=[];
+const c={voiceAudio:{context:{currentTime:0,destination:'existing-speaker'}},window:{setBearMouth:v=>levels.push(v)},requestAnimationFrame:fn=>frames.push(fn)};
+vm.createContext(c);vm.runInContext(source.slice(source.indexOf('function connectBearVoice')),c);
+let ended;
+const audio={buffer:{duration:1,sampleRate:100,getChannelData:()=>new Float32Array(100).fill(.1)},connect:node=>connections.push(node),addEventListener:(name,fn)=>{assert.equal(name,'ended');ended=fn;}};
+c.voiceAudio.source=audio;c.connectBearVoice(audio);
+assert.deepEqual(connections,['existing-speaker'],'existing TTS must have exactly one output connection');
+assert.equal(audio._bearEnd,1);
+frames.shift()();assert(levels.at(-1)>0,'actual waveform drives the mouth');
+ended();assert.equal(levels.at(-1),0,'audio end closes the mouth');assert.equal(audio._bearEnd,-1);
+frames.shift()();assert.equal(frames.length,0,'animation stops with the audio');
+console.log('Cal audio: one existing output connection, waveform-driven jaw, ended cleanup and no extra speech requests pass.');

@@ -71,7 +71,8 @@ class KeyboardOutput:
         with self.lock:return dict(armed=bool(self.token),held=sorted(self.held),object_id=self.object_id,mode=self.mode,
                                   accessibility=self.trusted(),reason=self.reason,stale_timeout_ms=350)
 
-    def arm(self,oid,mode='game',allowed_keys=None):
+    def arm(self,oid,mode='game',allowed_keys=None,retain_mapping=False):
+        if type(retain_mapping) is not bool:raise ValueError('Invalid keyboard retention setting.')
         allowed_keys=['w','a','s','d'] if allowed_keys is None else allowed_keys
         if not isinstance(allowed_keys,list) or not 1<=len(allowed_keys)<=4 or any(k not in CODES for k in allowed_keys):raise ValueError('Choose supported keyboard bindings.')
         if not isinstance(oid,str) or not oid or len(oid)>200:raise ValueError('Select a tracked joystick first.')
@@ -81,7 +82,7 @@ class KeyboardOutput:
             if not self.trusted():raise PermissionError('Enable macOS Accessibility for the app running this server, then retry Arm real WASD.')
             if not self.visible(oid):raise ValueError('The selected object is not currently tracked.')
             self.backend=self.backend or self.factory();self.object_id=oid;self.mode=mode
-            self.allowed_keys=set(allowed_keys);self.token=secrets.token_urlsafe(24);self.last=self.clock();self.sequence=-1;self.reason='Armed · sends to focused app'
+            self.retain_mapping=retain_mapping;self.allowed_keys=set(allowed_keys);self.token=secrets.token_urlsafe(24);self.last=self.clock();self.sequence=-1;self.reason='Armed · sends to focused app'
             return dict(token=self.token,**self.status())
 
     def update(self,token,keys,sequence):
@@ -130,7 +131,11 @@ class KeyboardOutput:
     def tick(self):
         with self.lock:
             if not self.token:return
-            if self.clock()-self.last>.35:self._disarm('Input stalled · re-arm to resume');return
+            if self.clock()-self.last>.35:
+                if getattr(self,'retain_mapping',False):
+                    self._set(set());self.reason='Input stalled · keys released; mapping retained'
+                else:self._disarm('Input stalled · re-arm to resume')
+                return
             if not self.visible(self.object_id):self._set(set());self.reason='Tracking lost · keys released';return
             if self.mode=='typing' and self.held and self.clock()>=self.repeat_at:
                 for key in sorted(self.held):self.backend.event(key,True,True)

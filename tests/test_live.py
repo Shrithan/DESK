@@ -484,7 +484,7 @@ def test_morph_http_uses_actual_fresh_snapshot_and_releases_camera_lock(monkeypa
         top.result=lambda:dict(objects=[dict(observation=dict(object_id='real-can',tracking_state='tracked'),object_label='cup',number=2,orientation=None)])
         class Planner:
             def status(self):return dict(configured=True)
-            def plan(self,text,objects,selected,current):
+            def plan(self,text,objects,selected,current,conversation=None):
                 # Planning/network work must not block vision's lock.
                 acquired=[]
                 def probe():

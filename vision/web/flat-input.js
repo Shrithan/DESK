@@ -10,7 +10,9 @@ function flatValue(center,size,mode,range=null){
 }
 function joystickValue(value,origin){return canStick(value,origin,30);}
 const flatInputs=new Map(),dismissedFlatInputs=new Set();
-let canJoystickArmed=sessionStorage.getItem('can-joystick-armed')==='1';
+// A previous session must never turn a newly detected object into a control.
+let canJoystickArmed=false;
+sessionStorage.removeItem('can-joystick-armed');
 function renderFlatInputs(){
  const tracked=objects('top');
  if(canJoystickArmed){
@@ -22,7 +24,6 @@ function renderFlatInputs(){
    canJoystickArmed=false;sessionStorage.removeItem('can-joystick-armed');$('can-status').textContent='Can assigned. Stand it upright and still for one second. Use Learn W and Learn D on its card to teach the tilted camera your directions.';
   }else $('can-status').textContent=containers.length?'Several similar objects are visible. Choose your can in Overhead input object, then Use as input.':'Waiting for your can under the overhead camera. Move it briefly to acquire it.';
  }
- for(const item of tracked){const id=item.observation.object_id;if(item.object_label==='disk'&&(!cameras.front.stream)&&!pairs.some(p=>p.top===id)&&!flatInputs.has(id)&&!dismissedFlatInputs.has(id))flatInputs.set(id,{mode:'xy',label:`Disk #${item.number}`,range:null});}
  const select=$('flat-object'),old=select.value;
  select.replaceChildren(new Option('Choose overhead object…',''),...tracked.filter(o=>o.observation.tracking_state==='tracked').map(o=>new Option(`#${o.number} ${o.object_label}`,o.observation.object_id)));
  if([...select.options].some(o=>o.value===old))select.value=old;
@@ -98,4 +99,4 @@ $('flat-add').addEventListener('click',async()=>{
 
 setInterval(()=>{if(running)renderFlatInputs();},33);
 
-$('can-joystick').addEventListener('click',()=>{if(typeof useOverheadJoystick==='function')void useOverheadJoystick();canJoystickArmed=true;sessionStorage.setItem('can-joystick-armed','1');renderFlatInputs();});
+$('can-joystick').addEventListener('click',()=>{if(typeof useOverheadJoystick==='function')void useOverheadJoystick();canJoystickArmed=true;renderFlatInputs();canJoystickArmed=false;});

@@ -48,3 +48,36 @@ def test_custom_keys_still_release_on_tracking_loss():
     visible[0]=False;output.tick()
     assert events==[('up',True),('up',False)]
     output.close()
+
+
+def test_module_catalog_and_exact_existing_game_profiles():
+    from vision.morph import MODULES, plan_format
+    assert {'general','flight-stick','subway-slide','dj'} <= set(catalog()['modules'])
+    for module in ('flight-stick','subway-slide','subway-tilt','can-slide-wasd'):
+        value=plan()
+        value['mapping'].update(module=module,setup_action='map',output='keyboard',bindings=MODULES[module]['bindings'])
+        assert validate_plan(value,OBJECTS)==value
+        value['mapping']['bindings']=dict(up='w',down='s',left='a',right='d')
+        with pytest.raises(ValueError,match='existing module profile'):validate_plan(value,OBJECTS)
+    schema=plan_format(OBJECTS,catalog())['json_schema']['schema']
+    for variant in schema['properties']['mapping']['anyOf'][1:]:
+        assert 'module' in variant['required'] and 'setup_action' in variant['required']
+
+
+def test_setup_conversation_reaches_planner_and_is_bounded():
+    requests=[]
+    def transport(request,timeout):
+        requests.append(json.loads(request.data))
+        return io.BytesIO(json.dumps({'choices':[{'finish_reason':'stop','message':{'content':json.dumps(plan())}}]}).encode())
+    planner=MorphPlanner(config=lambda:{'ASI1_API_KEY':'fake'},transport=transport)
+    history=[dict(transcript='I want to fly',message='Which object should be the flight joystick?')]
+    planner.plan('the cup',OBJECTS,conversation=history)
+    assert json.loads(requests[0]['messages'][1]['content'])['conversation']==history
+    for invalid in (history*9,[{'message':'missing transcript'}],[dict(transcript='a'*1001,message='x')]):
+        with pytest.raises(ValueError,match='conversation'):planner.plan('cup',OBJECTS,conversation=invalid)
+
+
+def test_rejects_calibration_outside_dj_and_unknown_modules():
+    for change in ({'module':'invented'},{'setup_action':'execute'},{'setup_action':'enable'},{'module':'dj'}):
+        value=plan();value['mapping'].update(change)
+        with pytest.raises(ValueError):validate_plan(value,OBJECTS)

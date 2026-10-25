@@ -209,3 +209,29 @@ def test_detected_occluding_object_can_press_without_a_hand():
     s['occluders']=[[28,28,62,62]]
     t();assert e.presses==['space']
     r.close()
+
+
+def test_app_button_survives_focus_heartbeat_gap_and_requires_uncover_before_repeat():
+    r,e,p,n,s,t,h,m=setup('keyboard','cover_button')
+    class App:
+        launches=0
+        def trigger(self):self.launches+=1
+    app=App()
+    r.target=dict(kind='trigger',label='Open test app',adapter=app)
+    for _ in range(5):t()
+    token=r.token
+    h.amount=.9;s['frame'][25:65,25:65]=220;t()
+    assert app.launches==1
+    # Launching the app takes focus; browser heartbeat timers can be throttled.
+    n[0]+=1;r.tick()
+    assert r.token==token and r.mapping==m
+    assert r.status()['details']['value']==0 and 'paused' in r.status()['reason']
+    for _ in range(5):t()
+    assert app.launches==1,'no delayed/repeated launch while still covered'
+    h.amount=0;s['frame'][:]=60
+    for _ in range(5):t()
+    h.amount=.9;s['frame'][25:65,25:65]=220;t()
+    assert app.launches==2 and r.token==token
+    r.stop()
+    assert r.mapping is None and r.token is None,'explicit Stop still clears activation'
+    r.close()

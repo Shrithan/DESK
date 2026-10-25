@@ -93,3 +93,25 @@ def test_idle_registrations_expire_boundedly_and_report_missing():
     m,s,n,h,step=setup();n[0]+=61
     state=m.update(['detected-can'])
     assert state['buttons']=={} and state['missing_ids']==['detected-can']
+
+
+def test_camera_tracking_lock_does_not_turn_fresh_cover_input_into_missing():
+    from vision.live import LiveSession,LiveServer
+    import cv2,time
+    session=LiveSession('top');session.overhead=True
+    frame=np.full((180,240,3),140,np.uint8)
+    session.receive(cv2.imencode('.jpg',frame)[1].tobytes())
+    mask=np.zeros((180,240),np.uint8);mask[60:100,80:120]=1
+    oid=session._add_object(mask,'sticker','cover_region')['object_id']
+    server=object.__new__(LiveServer);server.sessions={'top':session};server._action_snapshots={}
+    original=server.action_snapshot(oid,True)
+    session.lock.acquire()
+    try:
+        cached=server.action_snapshot(oid,True)
+        assert cached is not None
+        assert cached['frame_id']==original['frame_id']
+        assert cached['stamp']==original['stamp']
+        assert np.array_equal(cached['frame'],original['frame'])
+        server._action_snapshots[oid]['stamp']=time.monotonic()-.5
+        assert server.action_snapshot(oid,True) is None,'genuinely stale camera input must still pause'
+    finally:session.lock.release()

@@ -732,21 +732,35 @@ class LiveServer(ThreadingHTTPServer):
         self.actions=ActionRuntime(self.action_snapshot)
         from vision.button_inputs import ObjectButtons
         self.object_buttons=ObjectButtons(self.action_snapshot)
+        self._action_snapshots={}
         self.morph = MorphPlanner(catalog_provider=lambda:catalog(self.actions.registry.catalog(),HandDetector.available()))
         self.keyboard = KeyboardOutput(visible=self.key_object_visible)
 
     def action_snapshot(self,oid,include_frame=False):
         session=self.sessions['top']
-        if not session.lock.acquire(timeout=.03):return None
+        acquired=session.lock.acquire(timeout=.03)
+        if not acquired:
+            # A busy tracking request is not camera loss. Reuse the last coherent
+            # snapshot with its ORIGINAL age/frame ID; consumers still enforce
+            # the 350 ms freshness limit and never invent a new measurement.
+            cached=self._action_snapshots.get(oid)
+            if cached is None or time.monotonic()-cached['stamp']>.35:return None
+            return dict(cached,frame=cached['frame'].copy() if include_frame else None)
         try:
             meta=session.objects.get(oid)
-            if meta is None or session.frame is None:return None
+            if meta is None or session.frame is None:
+                self._action_snapshots.pop(oid,None)
+                return None
             bbox=meta['observation'].get('bbox_xyxy') or meta['bbox']
             h,w=session.frame.shape[:2]
-            return dict(tracked=meta['observation']['tracking_state']=='tracked',bbox=list(bbox),
+            snapshot=dict(tracked=meta['observation']['tracking_state']=='tracked',bbox=list(bbox),
                         position=[(bbox[0]+bbox[2])/(2*w),(bbox[1]+bbox[3])/(2*h)],
                         stamp=session.last_received,frame_id=session.frame_id,
-                        frame=session.frame.copy() if include_frame else None)
+                        frame=session.frame)
+            if oid not in self._action_snapshots and len(self._action_snapshots)>=16:
+                self._action_snapshots.pop(next(iter(self._action_snapshots)))
+            self._action_snapshots[oid]=snapshot
+            return dict(snapshot,frame=snapshot['frame'].copy() if include_frame else None)
         finally:session.lock.release()
 
     def mapping_objects(self):

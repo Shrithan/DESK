@@ -33,3 +33,7 @@ Real-provider verification used generated speech “When I cover this button, op
 If a backend restart loses a button registration, the API returns its ID in `missing_ids` and the card displays **— / RECONNECT BUTTON**, rather than falsely displaying 0. If the original detected ID remains visible, the browser retries enrollment while the object is uncovered. Otherwise **Reconnect / relearn object** binds the explicitly selected current object (or the sole visible candidate after a user click). Native tasks are not automatically re-armed.
 
 Polling one page's requested IDs no longer deletes another page's registrations. Removal is explicit; unused registrations expire after 60 seconds. This fixes a separate stuck-at-zero failure where a stale page kept polling a registration that no longer existed, so hand detection was never reached.
+
+### Camera-lock contention
+
+A real-camera cover test reached 97% hand coverage and produced value 1. It also exposed intermittent snapshot failures: the camera tracking lock could be busy for over the 30 ms snapshot timeout, which incorrectly sent the button back to `missing` while still covered. The action snapshot reader now reuses its most recent coherent per-object snapshot during that short lock wait. Original frame IDs and timestamps are preserved, repeated frames do not advance the detector or fire another event, and snapshots older than 350 ms still pause input. The cache is bounded to 16 objects and never writes camera frames to disk.

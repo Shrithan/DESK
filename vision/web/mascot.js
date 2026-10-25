@@ -133,30 +133,16 @@ function bearSay(message){
  });
  return bearSpeechTask;
 }
-$('bear-talk').addEventListener('click',async()=>{
- if(!$('command-hands-free').checked){
-  try{unlockVoice();if(!await refreshVoiceStatus()){$('bear-state').textContent='Cartesia API key unavailable.';return;}}
-  catch(err){$('bear-state').textContent=err.message;return;}
-  $('voice-enabled').checked=true;$('voice-enabled').dispatchEvent(new Event('change'));
-  $('command-hands-free').checked=true;$('command-hands-free').dispatchEvent(new Event('change'));
- }
-});
-$('bear-stop').addEventListener('click',()=>{$('command-hands-free').checked=false;$('command-hands-free').dispatchEvent(new Event('change'));});
-$('bear-avatar').addEventListener('click',()=>{if($('command-hands-free').checked)$('bear-stop').click();else $('bear-talk').click();});
-$('bear-form').addEventListener('submit',async event=>{
+// The bear is the conversation: clicking it toggles the live Cartesia microphone session and the
+// text box is the typed fallback. Both go through window.bearAssistant (assistant.js).
+$('bear-talk').addEventListener('click',()=>void window.bearAssistant?.startListening());
+$('bear-stop').addEventListener('click',()=>window.bearAssistant?.stopListening());
+$('bear-avatar').addEventListener('click',()=>window.bearAssistant?.toggleListening());
+$('bear-form').addEventListener('submit',event=>{
  event.preventDefault();const input=$('bear-text'),message=input.value.trim();if(!message)return;
  input.value='';
- if($('command-hands-free').checked){stopHandsFree();commandVersion++;commandRequest?.abort();if(commandRecorder)await finishCommand(false);}
- try{unlockVoice();if(!voiceConfigured)await refreshVoiceStatus();await applyVoiceCommand({transcript:message,intent:{}});}
- catch(err){void bearSay(err.message||'I could not do that.');}
+ try{unlockVoice();}catch(_){}
+ void window.bearAssistant?.handleUtterance(message,'typed');
 });
-void fetch('/api/voice/status').then(r=>r.json()).then(s=>{if(!s.configured)bearCaption('Cartesia API key unavailable.');}).catch(()=>{});
-setInterval(()=>{
- const listening=$('command-hands-free').checked;
- $('bear-talk').disabled=listening;$('bear-stop').disabled=!listening;
- $('bear-avatar').setAttribute('aria-label',listening?'Stop voice conversation':'Start voice conversation');
- document.body.classList.toggle('bear-listening',listening&&!!commandRecorder);
- $('bear-live').textContent=$('studio-state').textContent;
- $('bear-state').textContent=listening?($('command-status').textContent||'Listening…'):(voiceConfigured?'Cartesia ready · microphone off':'Cartesia API key needed · microphone off');
- const transcript=$('command-transcript').textContent;if(transcript)$('bear-transcript').textContent=transcript;
-},250);
+void fetch('/api/voice/status').then(r=>r.json()).then(s=>{if(!s.configured)bearCaption('Cartesia API key unavailable: replies will be text only.');}).catch(()=>{});
+setInterval(()=>{$('bear-live').textContent=$('studio-state').textContent;},500);

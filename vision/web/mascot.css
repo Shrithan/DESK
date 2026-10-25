@@ -1,8 +1,8 @@
 :root{--bear-sky:#72d5e7;--bear-ink:#203a41}
 body{background:var(--bear-sky);overflow-x:hidden}body>header{display:none}
 main{max-width:none;margin:0;padding:0;color:var(--bear-ink)}
-.bear-stage{height:100svh;min-height:480px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(4px,1vh,12px);padding:16px 20px;background:var(--bear-sky)}
-.bear-avatar{position:relative;display:block;flex:0 1 auto;width:min(78vh,78vw,720px);aspect-ratio:1/1;max-height:calc(100svh - 110px);min-height:0;padding:0;border:0;background:transparent;cursor:pointer;appearance:none}
+.bear-stage{position:relative;height:100svh;min-height:480px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(4px,1vh,12px);padding:16px 20px;background:var(--bear-sky)}
+.bear-avatar{position:relative;display:block;flex:0 1 auto;width:min(78vh,78vw,720px);aspect-ratio:1/1;max-height:calc(100svh - 270px);min-height:0;padding:0;border:0;background:transparent;cursor:pointer;appearance:none}
 .bear-avatar:hover:not(:disabled),.bear-avatar:focus-visible{background:transparent;border:0}
 .bear-avatar:focus-visible{outline:3px solid #1b5d76;outline-offset:4px}
 #bear-canvas{display:block;width:100%;height:100%;pointer-events:none}
@@ -14,3 +14,37 @@ main{max-width:none;margin:0;padding:0;color:var(--bear-ink)}
 .bear-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;border:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .workspace-setup{position:fixed;left:-10000px;top:0;width:1100px;height:800px;opacity:0;pointer-events:none;overflow:hidden;margin:0;padding:0}
 @media(max-width:600px){.bear-avatar{width:min(92vw,69vh)}#bear-text{height:54px;font-size:16px}}
+/* Conversation chrome: status, what was heard, the reply, verified actions, and one result panel. */
+.va-top{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;font:600 14px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.va-phase,.va-live{padding:6px 14px;border-radius:999px;background:#faffffd9;color:#203a41;box-shadow:0 2px 0 #3d9eae30}
+.va-live.armed{background:#203a41;color:#f2dd83}
+.va-listening .va-phase,.va-hearing .va-phase{background:#1b5d76;color:#fff}
+.va-thinking .va-phase{background:#f2dd83;color:#203a41}
+.va-speaking .va-phase{background:#203a41;color:#fff}
+.va-error .va-phase{background:#7a1f1f;color:#fff}
+/* State glow follows the bear's own outline (canvas alpha), never a box or ring. */
+#bear-canvas{transition:filter .3s}
+.va-listening #bear-canvas{filter:drop-shadow(0 0 10px #ffffffaa)}
+.va-hearing #bear-canvas{filter:drop-shadow(0 0 18px #ffffff)}
+.va-thinking #bear-canvas{animation:va-think 1.4s ease-in-out infinite}
+@keyframes va-think{0%,100%{filter:drop-shadow(0 0 6px #f2dd8366)}50%{filter:drop-shadow(0 0 22px #f2dd83)}}
+@media(prefers-reduced-motion:reduce){.va-thinking #bear-canvas{animation:none;filter:drop-shadow(0 0 14px #f2dd83)}}
+.va-heard,.va-reply,.va-notice{margin:0;max-width:min(640px,92vw);text-align:center;font:16px/1.35 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.va-heard{color:#2f5c64;min-height:1.35em;font-size:14px}
+.va-reply{color:#10262b;font-weight:600;min-height:1.35em}
+.va-notice{padding:6px 12px;border-radius:10px;background:#fff6d6;color:#5b4300;font-size:14px}
+.va-notice[hidden]{display:none}
+.va-controls{display:flex;gap:8px}
+.va-controls button,.va-panel-head button{padding:8px 14px;border:1px solid #b4d8dc;border-radius:12px;background:#faffff;color:#203a41;font:600 14px ui-sans-serif,-apple-system,sans-serif;cursor:pointer}
+.va-controls button[aria-pressed="true"]{background:#203a41;color:#fff;border-color:#203a41}
+.va-activity{list-style:none;margin:0;padding:0;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:min(720px,94vw);font:13px ui-sans-serif,-apple-system,sans-serif}
+.va-activity li{padding:3px 10px;border-radius:999px;background:#e7fbf2;color:#14532d}
+.va-activity li.failed{background:#fde8e8;color:#7a1f1f}
+.va-panel{position:absolute;right:16px;top:64px;width:min(440px,38vw);max-height:calc(100svh - 96px);overflow:auto;padding:12px;border-radius:16px;background:#faffff;color:#203a41;box-shadow:0 12px 28px #1c697033;z-index:2;font:14px ui-sans-serif,-apple-system,sans-serif}
+.va-panel[hidden]{display:none}
+.va-panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.va-panel canvas{display:block;width:100%;height:auto;border-radius:10px;background:#101a1c}
+.va-panel ul{margin:0;padding-left:18px}.va-panel li{margin:4px 0}.va-panel li.active{font-weight:600}
+.va-panel #action-test{height:220px;overflow:auto;border:1px solid #b4d8dc;border-radius:10px;padding:10px}
+.va-panel #keyboard-test{width:100%;min-height:60px;margin-bottom:8px}
+@media(max-width:900px){.va-panel{position:static;width:min(560px,92vw);max-height:none}.bear-stage{height:auto;min-height:100svh}}

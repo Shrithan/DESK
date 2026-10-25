@@ -725,6 +725,8 @@ class LiveServer(ThreadingHTTPServer):
         from vision.reply_speech import ReplySpeech
         self.reply_speech=ReplySpeech()
         self.agent_replies={};self.reply_lock=threading.Lock()
+        from vision.assistant import Assistant
+        self.assistant=Assistant()
         from vision.morph import MorphPlanner
         from vision.action_runtime import ActionRuntime
         from vision.morph import catalog
@@ -813,7 +815,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length",str(len(body)))
         self.send_header("Cache-Control","no-store")
         self.send_header("X-Content-Type-Options","nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; frame-ancestors 'none'")
+        # The only third-party connection is the browser's token-authenticated Cartesia speech-to-text stream.
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' wss://api.cartesia.ai; frame-ancestors 'none'")
         self.end_headers()
         try:
             self.wfile.write(body)
@@ -849,7 +852,11 @@ class Handler(BaseHTTPRequestHandler):
                   '/fusion.css':('fusion.css','text/css; charset=utf-8'),
                   '/mascot.css':('mascot.css','text/css; charset=utf-8'),
                   '/mascot.js':('mascot.js','text/javascript; charset=utf-8'),
+                  '/assistant.js':('assistant.js','text/javascript; charset=utf-8'),
+                  '/stt-stream.js':('stt-stream.js','text/javascript; charset=utf-8'),
                   '/bear-scene.js':('bear-scene.js','text/javascript; charset=utf-8'),
+                  '/bear-face.js':('bear-face.js','text/javascript; charset=utf-8'),
+                  '/cal-bear-talking.png':('cal-bear-talking.png','image/png'),
                   '/vendor/three.module.js':('vendor/three.module.js','text/javascript; charset=utf-8'),
                   '/vendor/three.core.js':('vendor/three.core.js','text/javascript; charset=utf-8'),
                   '/cal-bear.webp':('cal-bear.webp','image/webp'),
@@ -875,6 +882,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200,self.server.usb_guard.status())
         elif path == '/api/voice/status':
             self.send(200,self.server.voice.status())
+        elif path == '/api/assistant/status':
+            self.send(200,self.server.assistant.status())
         elif path == '/api/world':
             with self.server.sessions['front'].lock, self.server.sessions['top'].lock:
                 self.send(200,self.server.mapper.snapshot(self.server.sessions))
@@ -923,6 +932,25 @@ class Handler(BaseHTTPRequestHandler):
                         self.server.agent_replies[reply_id]=result['plan']['message']
                     self.send(200,dict(result,reply_id=reply_id))
                 except VoiceError as exc:self.send(exc.status,dict(error=str(exc)))
+                return
+            if path=='/api/assistant/step':
+                if self.headers.get_content_type()!='application/json' or length>200_000:raise ValueError('Expected a conversation step.')
+                payload=json.loads(body)
+                if not isinstance(payload,dict):raise ValueError('Expected a conversation object.')
+                try:self.send(200,self.server.assistant.step(payload.get('messages'),payload.get('state')))
+                except VoiceError as exc:self.send(exc.status,dict(error=str(exc)))
+                return
+            if path=='/api/voice/token':
+                try:self.send(200,self.server.speech_input.access_token())
+                except VoiceError as exc:self.send(exc.status,dict(error=str(exc)))
+                return
+            if path=='/api/morph/validate':
+                if self.headers.get_content_type()!='application/json' or length>8192:raise ValueError('Expected a small mapping.')
+                payload=json.loads(body)
+                if not isinstance(payload,dict):raise ValueError('Expected a mapping object.')
+                from vision.morph import validate_plan
+                plan=validate_plan(dict(status='ready',message='Validate mapping',mapping=payload.get('mapping')),self.server.mapping_objects(),self.server.morph.catalog_provider())
+                self.send(200,dict(mapping=plan['mapping']))
                 return
             if path=='/api/voice/reply':
                 if self.headers.get_content_type()!='application/json' or length>2048:raise ValueError('Expected a small reply request.')
@@ -988,10 +1016,10 @@ class Handler(BaseHTTPRequestHandler):
                 except RuntimeError as exc:self.send(503,dict(error=str(exc)))
                 return
             if path == '/api/voice/utterance':
-                if self.headers.get_content_type() != 'application/json' or length > 512:
+                if self.headers.get_content_type() != 'application/json' or length > 4096:
                     raise ValueError('Expected a short spoken reply.')
                 payload = json.loads(body)
-                if not isinstance(payload,dict) or not isinstance(payload.get('text'),str) or not 1 <= len(payload['text'].strip()) <= 300:
+                if not isinstance(payload,dict) or not isinstance(payload.get('text'),str) or not 1 <= len(payload['text'].strip()) <= 800:
                     raise ValueError('Expected a short spoken reply.')
                 try:self.send(200,self.server.reply_speech.speak(payload['text']),'audio/wav')
                 except VoiceError as exc:self.send(exc.status,dict(error=str(exc)))

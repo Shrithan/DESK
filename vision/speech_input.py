@@ -53,3 +53,19 @@ class CartesiaSpeechInput:
             if not isinstance(text,str) or len(text)>500:raise VoiceError('Cartesia returned an invalid command transcript.',502)
             return dict(transcript=text,intent=parse_command(text),provider='cartesia',model='ink-whisper')
         finally:self.lock.release()
+
+    def access_token(self,expires_in=120):
+        """Short-lived, STT-only token so the browser can stream to Cartesia without seeing the API key."""
+        key=self.config().get('CARTESIA_API_KEY')
+        if not key:raise VoiceError('Add CARTESIA_API_KEY to .env to enable voice conversation.')
+        request=Request('https://api.cartesia.ai/access-token',data=json.dumps(dict(grants=dict(stt=True),expires_in=expires_in)).encode(),method='POST',
+            headers={'Authorization':f'Bearer {key}','Cartesia-Version':'2026-08-14','Content-Type':'application/json'})
+        try:
+            with self.transport(request,timeout=10) as response:data=json.loads(response.read(16_001))
+        except HTTPError as exc:
+            raise VoiceError('Cartesia rejected the API key.' if exc.code in (401,403) else f'Cartesia could not issue a voice token (HTTP {exc.code}).',502) from None
+        except (URLError,OSError,TimeoutError,ValueError):
+            raise VoiceError('Cartesia is unreachable. Check the network connection.',502) from None
+        token=data.get('token') if isinstance(data,dict) else None
+        if not isinstance(token,str) or not 20<=len(token)<=4096:raise VoiceError('Cartesia returned an invalid voice token.',502)
+        return dict(token=token,expires_in=expires_in,model='ink-2',endpoint='wss://api.cartesia.ai/stt/turns/websocket',version='2026-08-14')

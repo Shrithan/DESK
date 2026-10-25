@@ -446,7 +446,7 @@ def test_bear_utterance_uses_server_side_cartesia_and_rejects_unbounded_text():
         connection.request('POST','/api/voice/utterance',json.dumps({'text':'Camera started.'}),{'Content-Type':'application/json'})
         response=connection.getresponse();assert response.status==200 and response.read()==audio
         assert seen==['Camera started.']
-        connection.request('POST','/api/voice/utterance',json.dumps({'text':'x'*301}),{'Content-Type':'application/json'})
+        connection.request('POST','/api/voice/utterance',json.dumps({'text':'x'*801}),{'Content-Type':'application/json'})
         response=connection.getresponse();assert response.status==400;response.read()
         assert seen==['Camera started.']
         connection.close()

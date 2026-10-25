@@ -58,8 +58,8 @@ async function sendDesktopAction(){
   const state=await api('/api/actions/update',{token,sequence:actionSequence++,enabled});
   if(version!==keyboardVersion)return;
   if(!state.armed){actionToken=null;keyboardObject=null;keyStatus(state.reason+' · click Arm mapped keys to resume');}else keyStatus('ARMED · '+(morphMapping?.output||'keyboard'));
-  const info=state.details||{};actionRegion=state.region||null;const input=flatInputs.get(keyboardObject);if(input)input.actionState=info;
-  $('action-status').textContent=state.reason+(info.value!=null?` · ${(info.value*100).toFixed(0)}%`:'')+(info.presses!=null?` · ${info.presses} presses`:'')+(info.axis?` · move ${info.axis} · position ${(info.position*100).toFixed(0)}%`:'');
+  const info=state.details||{};actionRegion=state.region||null;const input=flatInputs.get(keyboardObject);if(input){input.actionState=state.armed?info:{...info,value:0,phase:'stopped'};}
+  $('action-status').textContent=state.reason+(info.value!=null?(morphMapping?.controller==='cover_button'?` · input ${info.value}`:` · ${(info.value*100).toFixed(0)}%`):'')+(info.presses!=null?` · ${info.presses} presses`:'')+(info.axis?` · move ${info.axis} · position ${(info.position*100).toFixed(0)}%`:'');
   $('action-status').classList.toggle('is-pressed',info.phase==='pressed');
  }catch(err){if(version===keyboardVersion)void stopRealKeys(err.message);}
  finally{keySending=false;}
@@ -105,7 +105,7 @@ async function activateMorph(mapping,message){
  const item=objects('top').find(o=>o.observation.object_id===mapping.object_id&&o.observation.tracking_state==='tracked');
  if(!running||studioDemo||!item||performance.timeOrigin+performance.now()-cameras.top.acceptedSample>250)throw new Error('Object is no longer visible. Show it and repeat your command.');
  if(!['joystick','slider_x','slider_y','cover_button'].includes(mapping.controller))throw new Error('Unsupported controller.');
- if(mapping.controller==='joystick'&&typeof useOverheadJoystick==='function')await useOverheadJoystick();
+ if(['joystick','cover_button'].includes(mapping.controller)&&typeof useOverheadJoystick==='function')await useOverheadJoystick();
  await stopRealKeys('Applying agent mapping');
  if(mappingVersion!==commandVersion)return;
  morphPrevious=morphMapping?structuredClone(morphMapping):null;morphMapping=structuredClone(mapping);
@@ -115,7 +115,7 @@ async function activateMorph(mapping,message){
  // Learn the source center before activating its target.
  const input=flatInputs.get(id);input.morphCenter=input.current?.value;
  $('keyboard-target').value=id;$('keyboard-mode').value=mapping.mode;renderMorph();
- $('command-status').textContent=message+(mapping.controller==='joystick'?' Hold upright to learn neutral.':mapping.controller==='cover_button'?' Keep the target stationary. Uncover to reset; click the local test field or switch apps to enable presses.':' Move along the chosen camera axis. Re-arm here to learn a new center.');
+ $('command-status').textContent=message+(mapping.controller==='joystick'?' Hold upright to learn neutral.':mapping.controller==='cover_button'?' Keep the object uncovered until ready. Cover once to trigger; uncover to reset. Keyboard output needs the local test field or another app focused.':' Move along the chosen camera axis. Re-arm here to learn a new center.');
  try{await armRealKeys(id);}catch(err){keyStatus(err.message+' · mapping ready, output off');}
 }
 async function applyVoiceCommand(result){
@@ -128,9 +128,10 @@ async function applyVoiceCommand(result){
  const answer=await response.json();if(version!==commandVersion)return;
  if(!response.ok)throw new Error(answer.error||'Mapping agent failed.');
  const plan=answer.plan;
- if(plan.status==='stop'){await stopRealKeys('Stopped by agent');$('command-status').textContent=plan.message;return;}
- if(plan.status!=='ready'){$('command-status').textContent=plan.message;return;}
+ if(plan.status==='stop'){await stopRealKeys('Stopped by agent');$('command-status').textContent=plan.message;void speakMappingReply(answer.reply_id);return;}
+ if(plan.status!=='ready'){$('command-status').textContent=plan.message;void speakMappingReply(answer.reply_id);return;}
  await activateMorph(plan.mapping,plan.message);
+ void speakMappingReply(answer.reply_id);
 }
 async function finishCommand(send=true){
  const rec=commandRecorder;if(!rec)return;commandRecorder=null;
@@ -179,7 +180,7 @@ $('morph-undo').addEventListener('click',async()=>{if(!morphPrevious)return;cons
 void fetch('/api/morph/status').then(r=>r.json()).then(s=>{
  $('morph-status').textContent=s.configured?`ASI:One · ${s.model} · ready`:'ASI:One needs ASI1_API_KEY in your local .env. Add it, then speak; no restart needed.';
  $('morph-catalog').textContent=JSON.stringify(s.catalog,null,2);
- $('morph-targets').textContent='Available actions: '+Object.values(s.catalog.targets||{}).filter(t=>t.available).map(t=>t.label).join(' · ');
+ const entries=Object.entries(s.catalog.targets||{}).filter(([id,t])=>t.available),apps=entries.filter(([id])=>id.startsWith('app.open.'));$('morph-targets').textContent='Available actions: '+entries.filter(([id])=>!id.startsWith('app.open.')).map(([id,t])=>t.label).join(' · ')+(apps.length?` · Open installed apps (${apps.length})`:'');
 }).catch(()=>{$('morph-status').textContent='Mapping agent unavailable.';});
 renderMorph();
 
@@ -192,10 +193,11 @@ $('command-text-send').addEventListener('click',async()=>{
  finally{if(version===commandVersion){commandRequest=null;$('command-text-send').disabled=false;}}
 });
 let registeringRegion=false,regionStart=null;
-$('register-region').addEventListener('click',()=>{
+$('register-region').addEventListener('click',async()=>{
  if(!running||studioDemo){$('command-status').textContent='Start the real overhead webcam first.';return;}
+ if(!registeringRegion){await stopRealKeys('Adding a sticker button');if(typeof useOverheadJoystick==='function')await useOverheadJoystick();}
  registeringRegion=!registeringRegion;cameras.top.overlay.classList.toggle('registering-region',registeringRegion);
- $('command-status').textContent=registeringRegion?'Drag a tight rectangle around the sticker in the overhead feed. Registration is only needed if automatic detection misses it.':'Region registration cancelled.';
+ $('command-status').textContent=registeringRegion?'Keep the sticker uncovered and fixed. Drag a tight rectangle around it in the overhead feed; then cover it to press the selected key.':'Region registration cancelled.';
 });
 const regionCanvas=cameras.top.overlay;
 function regionPoint(e){const r=regionCanvas.getBoundingClientRect(),scale=Math.min(r.width/regionCanvas.width,r.height/regionCanvas.height),w=regionCanvas.width*scale,h=regionCanvas.height*scale;return [Math.max(0,Math.min(1,(e.clientX-r.left-(r.width-w)/2)/w)),Math.max(0,Math.min(1,(e.clientY-r.top-(r.height-h)/2)/h))];}
@@ -204,6 +206,6 @@ regionCanvas.addEventListener('pointermove',e=>{if(!regionStart)return;const p=r
 regionCanvas.addEventListener('pointercancel',()=>{regionStart=null;delete regionCanvas.dataset.region;});
 regionCanvas.addEventListener('pointerup',async e=>{
  if(!regionStart)return;const p=regionPoint(e),a=regionStart;regionStart=null;registeringRegion=false;delete regionCanvas.dataset.region;regionCanvas.classList.remove('registering-region');
- try{const result=await api('/api/register-region',{bbox:[Math.min(a[0],p[0]),Math.min(a[1],p[1]),Math.max(a[0],p[0]),Math.max(a[1],p[1])]},'top');cameras.top.result=result;syncCommandTargets();$('command-status').textContent='Sticker registered. Say what you want it to control.';}
+ try{const result=await api('/api/register-region',{stationary:true,bbox:[Math.min(a[0],p[0]),Math.min(a[1],p[1]),Math.max(a[0],p[0]),Math.max(a[1],p[1])]},'top');cameras.top.result=result;syncCommandTargets();const key=$('sticker-key').value;await activateMorph({object_id:result.registered_object_id,controller:'cover_button',output:'keyboard',bindings:{press:key},mode:'game',deadzone:.18},`Sticker button → ${key.toUpperCase()}. Keep it uncovered until ready, then cover and uncover to press again.`);}
  catch(err){$('command-status').textContent=err.message;}
 });

@@ -57,7 +57,7 @@ class CartesiaVoice:
         config = self.config()
         return dict(provider='cartesia', configured=bool(config.get('CARTESIA_API_KEY')),
                     model=config.get('CARTESIA_MODEL_ID') or 'sonic-3.6',
-                    sends='Status phrases for speech; short microphone clips only when you click Talk. No camera frames.',speech_input_model='ink-whisper')
+                    sends='Status phrases and validated agent replies for speech; short microphone clips only when you click Talk. No camera frames.',speech_input_model='ink-whisper')
 
     def speak(self, event):
         if not isinstance(event, str) or event not in PHRASES:
@@ -67,7 +67,7 @@ class CartesiaVoice:
         if not key:
             raise VoiceError('Add CARTESIA_API_KEY to the local .env file to enable Cartesia.')
         model = config.get('CARTESIA_MODEL_ID') or 'sonic-3.6'
-        voice = config.get('CARTESIA_VOICE_ID') or 'db6b0ed5-d5d3-463d-ae85-518a07d3c2b4'
+        voice = config.get('CARTESIA_VOICE_ID') or '47c38ca4-5f35-497b-b1a3-415245fb35e1'
         cache_key = (key, model, voice, event)
         if not self.lock.acquire(blocking=False):
             raise VoiceError('Voice is busy; tracking continues.', 429)

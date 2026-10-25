@@ -78,8 +78,11 @@ class ActionRuntime:
                 if cover:
                     coverage=self.hand.coverage(sample['frame'],self.cover.bbox,now)
                     self.details=self.cover.step(sample['frame'],coverage,now)
-                    if self.details['fire']:self.events.press(self.mapping['bindings']['press'])
-                    self.reason='Cover button · '+self.details['phase']
+                    self.details['value']=int(self.details['phase']=='pressed' and coverage>.3 and self.details['appearance_change']>.06)
+                    if self.details['fire']:
+                        if self.target['kind']=='trigger':self.target['adapter'].trigger()
+                        else:self.events.press(self.mapping['bindings']['press'])
+                    self.reason=self.target['label']+' · '+self.details['phase']
                 else:
                     position=self._position(sample)
                     if not math.isfinite(position) or not 0<=position<=1:raise ValueError('Invalid measured slider position.')

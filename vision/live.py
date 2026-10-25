@@ -6,6 +6,7 @@ memory. This adapter owns no camera/calibration interfaces in shared/contracts.
 import argparse
 import json
 import logging
+import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import threading
@@ -139,11 +140,18 @@ class LiveSession:
         self.frame_id += 1
         observations = self.tracker.update(frame, self.camera_id, self.timestamp(), "uncalibrated-live",
                                            recover_lost=not ((self.single_target or self.workspace_multi) and self.engine is not None),
-                                           recover_ids={oid for oid,m in self.objects.items() if m.get('source')=='registered_region'})
+                                           recover_ids={oid for oid,m in self.objects.items() if m.get('source')=='registered_region'},
+                                           skip_ids={oid for oid,m in self.objects.items() if m.get('source')=='cover_region'})
         if resized:
             self.objects = {}
             self.pending_objects = []
         by_id = {o['object_id']: o for o in observations}
+        for oid,meta in self.objects.items():
+            if meta.get('source')=='cover_region':
+                target=self.tracker.targets[(self.camera_id,oid)]
+                obs=self.tracker._observation(target,self.camera_id,self.last_timestamp,'uncalibrated-live')
+                obs['tracking_basis']='fixed_registered_region'
+                by_id[oid]=obs
         if self.engine is not None and fresh_detection:
             # One-to-one association: detection order cannot assign one mask to two IDs.
             detections = []
@@ -195,6 +203,7 @@ class LiveSession:
                 same_detections=[j for j,d in enumerate(detections) if self._compatible(d['label'],label)]
                 return same_objects==[oid] and same_detections==[i]
             for oid, meta in self.objects.items():
+                if meta.get('source')=='cover_region':continue
                 obs = by_id.get(oid)
                 lost_recently = obs is not None and obs['tracking_state']=='lost' and time.monotonic()-meta['support']<=REACQUIRE_S
                 if not obs or (obs['tracking_state'] not in ('tracked','predicted') and not (self.single_target or self.workspace_multi or lost_recently)):
@@ -338,7 +347,7 @@ class LiveSession:
             obs=by_id.get(oid)
             if obs is None:
                 continue
-            if self.engine is not None and meta.get('source')!='registered_region' and obs['tracking_state'] in ('tracked','predicted') and time.monotonic()-meta['support']>1.8:
+            if self.engine is not None and meta.get('source') not in ('registered_region','cover_region') and obs['tracking_state'] in ('tracked','predicted') and time.monotonic()-meta['support']>1.8:
                 target=self.tracker.targets[(self.camera_id,oid)]; target.state='lost'
                 obs=self.tracker._observation(target,self.camera_id,self.last_timestamp,'uncalibrated-live')
             if obs['bbox_xyxy'] is not None:
@@ -373,7 +382,7 @@ class LiveSession:
         seeds = [dict(track_id=oid, label=meta['label'], mask=target.mask.copy(), tracked=target.state=='tracked')
                  for oid, meta in self.objects.items()
                  if (target := self.tracker.targets.get((self.camera_id, oid))) is not None
-                 and np.count_nonzero(target.mask) > 48]
+                 and meta.get('source')!='cover_region' and np.count_nonzero(target.mask) > 48]
         boxes = None  # looked up from each object's box history at collect time
         self.last_detection = time.monotonic()
 
@@ -552,7 +561,12 @@ class LiveSession:
             raise ValueError('Empty object mask')
         middle=len(xs)//2
         obs=self.tracker.select(self.frame,self.camera_id,int(xs[middle]),int(ys[middle]),
-                                self.timestamp(),'uncalibrated-live',mask,allow_textureless=self.overhead and (label=='disk' or source=='registered_region'))
+                                self.timestamp(),'uncalibrated-live',mask,allow_textureless=self.overhead and (label=='disk' or source in ('registered_region','cover_region')))
+        if source=='cover_region':
+            target=self.tracker.targets[(self.camera_id,obs['object_id'])]
+            target.points=np.empty((0,1,2),dtype=np.float32);target.ids=[]
+            obs=self.tracker._observation(target,self.camera_id,self.last_timestamp,'uncalibrated-live')
+            obs['tracking_basis']='fixed_registered_region'
         x,y,x2,y2=obs['bbox_xyxy']
         self.objects[obs['object_id']]=dict(label=label,source=source,number=len(self.objects)+1,
             origin=[(x+x2)/2,(y+y2)/2],previous=None,bbox=obs['bbox_xyxy'],
@@ -631,7 +645,7 @@ class LiveSession:
                     skeleton=can_skeleton(self.tracker.targets[(self.camera_id,oid)].mask)
                 features={p['track_id']:p['pixel_xy'] for p in obs['features']}
                 speed=None
-                if self.overhead:
+                if self.overhead and meta.get('source')!='cover_region':
                     target=self.tracker.targets[(self.camera_id,oid)]
                     patch=surface_patch(self.frame,target.mask)
                     if meta.get('rotation_reference') is None and patch is not None:
@@ -708,11 +722,16 @@ class LiveServer(ThreadingHTTPServer):
         from vision.exposure import WebcamExposure
         self.exposure=WebcamExposure()
         self.speech_input = CartesiaSpeechInput()
+        from vision.reply_speech import ReplySpeech
+        self.reply_speech=ReplySpeech()
+        self.agent_replies={};self.reply_lock=threading.Lock()
         from vision.morph import MorphPlanner
         from vision.action_runtime import ActionRuntime
         from vision.morph import catalog
         from vision.cover import HandDetector
         self.actions=ActionRuntime(self.action_snapshot)
+        from vision.button_inputs import ObjectButtons
+        self.object_buttons=ObjectButtons(self.action_snapshot)
         self.morph = MorphPlanner(catalog_provider=lambda:catalog(self.actions.registry.catalog(),HandDetector.available()))
         self.keyboard = KeyboardOutput(visible=self.key_object_visible)
 
@@ -733,14 +752,17 @@ class LiveServer(ThreadingHTTPServer):
     def mapping_objects(self):
         from vision.cover import HandDetector
         session=self.sessions['top']
+        buttons=getattr(self,'object_buttons',None)
+        assigned=buttons.assigned_ids() if buttons else set()
         with session.lock:
             objects=[]
             if time.monotonic()-session.last_received<.4:
                 for item in session.result()['objects']:
                     if item['observation']['tracking_state']!='tracked':continue
-                    controllers=['joystick','slider_x','slider_y']
+                    controllers=[] if item.get('selection_source')=='cover_region' else ['joystick','slider_x','slider_y']
                     if HandDetector.available():controllers.append('cover_button')
                     objects.append(dict(object_id=item['observation']['object_id'],label=item['object_label'],number=item['number'],controllers=controllers))
+                    if item['observation']['object_id'] in assigned:objects[-1]['assigned_controller']='cover_button'
             return objects
 
     def key_object_visible(self, oid):
@@ -754,6 +776,7 @@ class LiveServer(ThreadingHTTPServer):
             session.lock.release()
 
     def server_close(self):
+        if hasattr(self,'object_buttons'):self.object_buttons.close()
         if hasattr(self,'keyboard'):self.keyboard.close()
         if hasattr(self,'actions'):self.actions.close()
         super().server_close()
@@ -805,6 +828,7 @@ class Handler(BaseHTTPRequestHandler):
                   '/stick.js':('stick.js','text/javascript; charset=utf-8'),
                   '/motion-filter.js':('motion-filter.js','text/javascript; charset=utf-8'),
                   '/dashboard.js':('dashboard.js','text/javascript; charset=utf-8'),
+                  '/object-buttons.js':('object-buttons.js','text/javascript; charset=utf-8'),
                   '/flat-input.js':('flat-input.js','text/javascript; charset=utf-8'),
                   '/prediction.js':('prediction.js','text/javascript; charset=utf-8'),
                   '/fusion.js':('fusion.js','text/javascript; charset=utf-8'),
@@ -866,8 +890,34 @@ class Handler(BaseHTTPRequestHandler):
                 moved=payload.get('moved',[])
                 if not isinstance(moved,list) or len(moved)>100:raise ValueError('Invalid movement context.')
                 for item in objects:item['recently_moved']=item['object_id'] in moved
-                try:self.send(200,self.server.morph.plan(payload.get('transcript'),objects,payload.get('selected'),payload.get('current')))
+                try:
+                    result=self.server.morph.plan(payload.get('transcript'),objects,payload.get('selected'),payload.get('current'))
+                    reply_id=secrets.token_urlsafe(18)
+                    with self.server.reply_lock:
+                        if len(self.server.agent_replies)>=8:self.server.agent_replies.pop(next(iter(self.server.agent_replies)))
+                        self.server.agent_replies[reply_id]=result['plan']['message']
+                    self.send(200,dict(result,reply_id=reply_id))
                 except VoiceError as exc:self.send(exc.status,dict(error=str(exc)))
+                return
+            if path=='/api/voice/reply':
+                if self.headers.get_content_type()!='application/json' or length>2048:raise ValueError('Expected a small reply request.')
+                payload=json.loads(body)
+                if not isinstance(payload,dict) or not isinstance(payload.get('reply_id'),str):raise ValueError('Choose a current agent reply.')
+                with self.server.reply_lock:text=self.server.agent_replies.get(payload['reply_id'])
+                if text is None:raise ValueError('Agent reply expired. Make a new mapping request.')
+                try:self.send(200,self.server.reply_speech.speak(text),'audio/wav')
+                except VoiceError as exc:self.send(exc.status,dict(error=str(exc)))
+                return
+            if path.startswith('/api/buttons/'):
+                if self.headers.get_content_type()!='application/json' or length>8192:raise ValueError('Expected a small button request.')
+                payload=json.loads(body)
+                if not isinstance(payload,dict):raise ValueError('Invalid button request.')
+                try:
+                    if path=='/api/buttons/add':result=self.server.object_buttons.add(payload.get('object_id'))
+                    elif path=='/api/buttons/update':result=self.server.object_buttons.update(payload.get('object_ids'))
+                    else:self.send(404,dict(error='Not found'));return
+                    self.send(200,result)
+                except (RuntimeError,OSError) as exc:self.send(503,dict(error=str(exc)))
                 return
             if path.startswith('/api/actions/'):
                 if self.headers.get_content_type()!='application/json' or length>8192:raise ValueError('Expected a small action request.')
@@ -946,13 +996,18 @@ class Handler(BaseHTTPRequestHandler):
                         self.server.mapper.reset_anchor()
                         result = dict(status='reference_reset')
                     elif path == '/api/register-region':
+                        stationary=payload.get('stationary',False)
+                        if type(stationary) is not bool:raise ValueError('Invalid region mode.')
+                        if stationary and (session.camera_id!='top' or time.monotonic()-session.last_received>.5):raise ValueError('Start the overhead webcam and show the sticker first.')
                         box=payload.get('bbox')
                         if session.frame is None or not isinstance(box,list) or len(box)!=4 or any(type(v) not in (int,float) or not np.isfinite(v) or not 0<=v<=1 for v in box):raise ValueError('Draw a finite region within the camera image.')
                         h,w=session.frame.shape[:2];x,y,x2,y2=[round(v*(w if i%2==0 else h)) for i,v in enumerate(box)]
                         if min(x2-x,y2-y)<12:raise ValueError('Select a larger sticker/region.')
+                        if stationary and (x<8 or y<8 or x2>w-8 or y2>h-8):raise ValueError('Select a sticker at least 8 pixels inside the image edges.')
                         mask=np.zeros((h,w),np.uint8);mask[y:y2,x:x2]=1
-                        session._add_object(mask,'sticker','registered_region')
+                        added=session._add_object(mask,'sticker','cover_region' if stationary else 'registered_region')
                         result=session.result()
+                        result['registered_object_id']=added['object_id']
                     elif path == '/api/select':
                         result = session.select(payload.get('frame_id'),payload.get('bbox'))
                     elif path == '/api/rotation/reset':

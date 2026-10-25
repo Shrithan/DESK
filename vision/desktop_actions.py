@@ -103,6 +103,10 @@ class ActionRegistry:
         self.register('desktop.scroll',dict(label='Scroll the application under the pointer',kind='relative',controllers=['slider_x','slider_y'],bindings=dict(negative='up',positive='down')),None)
         self._discover('display.brightness','Built-in display brightness',DisplayBrightness)
         self._discover('audio.volume','Current audio output volume',OutputVolume)
+        from vision.app_actions import installed_apps, OpenApplication
+        for bundle,label,path in installed_apps():
+            self.register('app.open.'+bundle,dict(label='Open '+label,kind='trigger',
+                controllers=['cover_button'],bindings=dict(press='open'),app_name=label),OpenApplication(bundle,path))
 
     def register(self,identifier,spec,adapter,error=None):
         self.targets[identifier]=dict(spec,available=error is None,reason=error,adapter=adapter)

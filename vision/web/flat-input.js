@@ -86,6 +86,7 @@ function renderFlatInputs(){
 }
 $('flat-add').addEventListener('click',()=>{
  const id=$('flat-object').value,item=objects('top').find(o=>o.observation.object_id===id);if(!item)return;
+ if($('flat-mode').value==='button'){void assignDetectedButton({id,name:`${item.object_label} #${item.number}`});return;}
  flatInputs.set(id,{mode:$('flat-mode').value,pivot:$('flat-mode').value==='xy',label:`${item.object_label} #${item.number}`,range:null});
  if($('flat-mode').value==='xy'&&typeof useOverheadJoystick==='function')void useOverheadJoystick();
  const pair=pairs.find(p=>p.top===id);if(pair)pairs.splice(pairs.indexOf(pair),1);

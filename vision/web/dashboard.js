@@ -4,7 +4,7 @@ if(location.pathname.endsWith('/fusion.html')){$('start').disabled=true;$('start
 const studioCards=new Map();
 function registryItems(){
  const now=performance.timeOrigin+performance.now(),overhead=objects('top');
- const inputs=[...flatInputs].map(([id,input])=>{const item=overhead.find(o=>o.observation.object_id===id);return {key:'input:'+id,id,type:input.controlKind==='cover_button'?'button':input.mode==='xy'?'joystick':'slider',name:input.label,input,item,active:input.controlKind==='cover_button'?['ready','covering','pressed'].includes(input.actionState?.phase):input.mode==='xy'?!!input.controlActive:!!(item?.motion&&item.observation.tracking_state==='tracked'&&now-cameras.top.acceptedSample<250),yaw:input.filteredYaw??item?.orientation?.rotation_degrees??null};});
+ const inputs=[...flatInputs].map(([id,input])=>{const item=overhead.find(o=>o.observation.object_id===id);return {key:'input:'+id,id,type:input.controlKind==='cover_button'?'button':input.mode==='xy'?'joystick':'slider',name:input.label,input,item,active:input.controlKind==='cover_button'?running&&(!input.previewOnly||now-(input.buttonStamp||0)<350)&&['ready','covering','pressed'].includes(input.actionState?.phase):input.mode==='xy'?!!input.controlActive:!!(item?.motion&&item.observation.tracking_state==='tracked'&&now-cameras.top.acceptedSample<250),yaw:input.filteredYaw??item?.orientation?.rotation_degrees??null};});
  const spatial=pairs.map(pair=>({key:'pair:'+pair.number,type:'object',name:`Object ${pair.number} · ${pair.label}`,pair,active:!!(pair.position&&pair.visual),yaw:find('top',pair.top)?.orientation?.rotation_degrees??null}));
  const used=new Set([...flatInputs.keys(),...pairs.map(p=>p.top)]);
  const possible=overhead.filter(item=>!used.has(item.observation.object_id)&&item.observation.tracking_state==='tracked').map(item=>({key:'candidate:'+item.observation.object_id,id:item.observation.object_id,item,type:'candidate',name:`${item.object_label} #${item.number}`,active:true,yaw:item.orientation?.rotation_degrees??null}));
@@ -46,12 +46,12 @@ function updateStudio(){
   ctx.fillStyle='#101a1c';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#2b4447';ctx.lineWidth=1;
   card.rebuild=card.kind!==entry.type;card.actionIndex=0;if(card.rebuild)card.actions.replaceChildren();card.kind=entry.type;
   if(entry.type==='button'){
-   const state=entry.input.actionState||{},pressed=state.phase==='pressed';
+   const state=entry.input.actionState||{},pressed=entry.active&&(state.value!=null?state.value===1:state.phase==='pressed');
    ctx.fillStyle=pressed?'#f2dd83':'#344037';ctx.beginPath();ctx.arc(130,100,65,0,Math.PI*2);ctx.fill();
-   ctx.fillStyle=pressed?'#101512':'#edf2e9';ctx.font='18px sans-serif';ctx.textAlign='center';ctx.fillText(pressed?'PRESSED':'COVER',130,106);ctx.textAlign='start';
-   card.values.textContent=`${state.phase||'waiting'} · ${state.presses||0} presses`;
-   card.rotation.textContent='Hand-confirmed cover → one key press. Uncover the stationary target to reset.';
-   action(card,'Re-arm / learn clear view',()=>void armRealKeys(entry.id).catch(err=>keyStatus(err.message)));
+   ctx.fillStyle=pressed?'#101512':'#edf2e9';ctx.font='64px sans-serif';ctx.textAlign='center';ctx.fillText(pressed?'1':'0',130,122);ctx.textAlign='start';
+   card.values.textContent=`OUTPUT ${pressed?1:0} · ${state.phase||'waiting'} · ${state.presses||0} covers`;
+   card.rotation.textContent=entry.input.previewOnly?'0 = uncovered · 1 = covered · detected-object input':'Hand-confirmed cover → one key press. Uncover to reset.';
+   if(entry.input.previewOnly)action(card,'Relearn uncovered object',e=>void assignDetectedButton(e));else action(card,'Re-arm / learn clear view',()=>void armRealKeys(entry.id).catch(err=>keyStatus(err.message)));
   }else if(entry.type==='joystick'){
    const i=entry.input,value=i.current,stick=i.joystick;
    ctx.beginPath();ctx.arc(130,100,74,0,Math.PI*2);ctx.moveTo(45,100);ctx.lineTo(215,100);ctx.moveTo(130,15);ctx.lineTo(130,185);ctx.stroke();
@@ -86,11 +86,12 @@ function updateStudio(){
    card.values.textContent='Choose how this object behaves';
    action(card,'Add joystick',e=>assignInput(e,'xy'));action(card,'Add slider',e=>assignInput(e,'x'));
   }
+  if(entry.type!=='button')action(card,'Use as button',e=>void assignDetectedButton({id:e.id||e.pair.top,name:e.name}));
   if(['joystick','slider','button'].includes(entry.type))action(card,'Remove',e=>{flatInputs.delete(e.id);dismissedFlatInputs.add(e.id);updateStudio();});
  }
  let empty=$('registry-empty');if(!empty){empty=document.createElement('div');empty.id='registry-empty';empty.className='registry-empty';$('control-registry').append(empty);}
  empty.hidden=items.some(e=>studioFilter==='all'||e.type===studioFilter);
- empty.textContent=studioFilter!=='all'?`No ${studioFilter==='object'?'3D objects':studioFilter==='slider'?'sliders':'joysticks'} configured yet. Choose All controls to assign a tracked object.`:running?'Move an object briefly under the overhead camera. New tracks appear here.':'Your controls will appear here. Start cameras when ready, or preview the layout without camera access.';
+ empty.textContent=studioFilter!=='all'?`No ${studioFilter==='object'?'3D objects':studioFilter==='slider'?'sliders':studioFilter==='button'?'buttons':'joysticks'} configured yet. Choose All controls to assign a tracked object.`:running?'Move an object briefly under the overhead camera. New tracks appear here.':'Your controls will appear here. Start cameras when ready, or preview the layout without camera access.';
 }
 for(const button of document.querySelectorAll('[data-filter]'))button.addEventListener('click',()=>{studioFilter=button.dataset.filter;for(const b of document.querySelectorAll('[data-filter]'))b.setAttribute('aria-pressed',String(b===button));updateStudio();});
 function clearStudioDemo(){

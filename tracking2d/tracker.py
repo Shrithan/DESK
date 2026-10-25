@@ -99,12 +99,12 @@ class Tracker:
         self.last_timestamp.pop((camera_id, object_id), None)
         return self.targets.pop((camera_id, object_id), None) is not None
 
-    def update(self, frame, camera_id, timestamp_ms, calibration_version, *, recover_lost=True, recover_ids=()):
+    def update(self, frame, camera_id, timestamp_ms, calibration_version, *, recover_lost=True, recover_ids=(), skip_ids=()):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         if self.illumination is not None:gray=self.illumination.apply(gray)
         observations = []
         for (cam, oid), target in self.targets.items():
-            if cam != camera_id:
+            if cam != camera_id or oid in skip_ids:
                 continue
             key = (cam, oid)
             if timestamp_ms <= self.last_timestamp[key]:

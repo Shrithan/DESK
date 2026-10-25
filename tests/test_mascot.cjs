@@ -1,0 +1,22 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('vision/web/mascot.js','utf8').split("$('bear-talk').addEventListener")[0];
+const clicked=[];
+const elements=new Map([['start',{disabled:false,click(){clicked.push('start');}}],['keyboard-stop',{disabled:false,click(){clicked.push('stop');}}],['morph-undo',{disabled:true,click(){clicked.push('undo');}}],['overhead-only',{checked:false,dispatchEvent(){clicked.push('overhead');}}]]);
+const mapped=[];let liveItems=[];
+const context={$:id=>elements.get(id),Event:class{},studioCards:new Map(),registryItems:()=>liveItems,stopRealKeys:async()=>{},useOverheadJoystick:async()=>{clicked.push('overhead');},assignInput(entry,mode){mapped.push([entry.id,mode]);},assignDetectedButton:async()=>true,voiceConfigured:false};vm.createContext(context);vm.runInContext(source,context);
+(async()=>{
+ const items=[{name:'disk #1',item:{number:1,object_label:'disk'}},{name:'disk #2',item:{number:2,object_label:'disk'}}];
+ assert.equal(context.spokenTarget('make disk one a joystick',items),items[0]);
+ assert.equal(context.spokenTarget('make disk number 2 a slider',items),items[1]);
+ assert.equal(context.spokenTarget('make a disk a joystick',items),null);
+ assert.equal((await context.routeStudioCommand('Start the overhead camera')).handled,true);
+ assert.deepEqual(clicked,['overhead','start']);
+ assert.equal((await context.routeStudioCommand('Stop all output')).handled,true);
+ assert.equal(clicked.at(-1),'stop');
+ liveItems=[{key:'candidate:cup',id:'cup',name:'cup #1',item:{number:1,object_label:'cup'},type:'candidate',active:true}];
+ assert.equal((await context.routeStudioCommand('Map this can to a joystick')).handled,true);
+ assert.deepEqual(mapped,[['cup','xy']]);
+ assert.equal(await context.routeStudioCommand('When I cover the bottle, open Calculator'),null);
+ await assert.rejects(()=>context.routeStudioCommand('Undo mapping'),/unavailable/);
+ console.log('Bear command routing checks passed.');
+})().catch(err=>{console.error(err);process.exitCode=1;});

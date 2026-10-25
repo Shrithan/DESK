@@ -1,7 +1,7 @@
 # Phantom vision — local webcam tracker
 
 Current demo: `.venv/bin/python -m vision.live`, then open
-http://localhost:8765 in Safari/Chrome and press **Start webcam**. The connected
+http://localhost:8765 in Safari/Chrome. The bear-led voice studio is the default page. Add `CARTESIA_API_KEY` to the ignored `.env`, press **Start talking**, and say "start the overhead camera". Open **Workspace and camera setup** for camera choices and detailed controls. The connected
 USB webcam is preferred automatically. Keep it still, let the scene settle, then
 move an object to see a green tracking region, details and motion trail.
 No iPhone or OBS setup is needed for this mode. **Find another object** resets
@@ -115,7 +115,7 @@ promises. See [vision integration](docs/vision.md) and [status](docs/status/AGEN
 
 ### Voice mapping and real WASD
 
-The live studio now supports **Talk to map**: show an item and say “Map this can to a joystick.” Cartesia Ink transcribes the command, Sonic confirms it, and the mapped joystick can drive real W/A/S/D in the focused Mac app after Accessibility permission is granted. Choose Game mode for held keys or Document mode for repeated letters. Overhead-only mode works without an iPhone. See [voice mapping setup](docs/voice-joystick.md) for calibration, stopping, permissions and background-capture limits.
+The live studio now uses a bear-led Cartesia interface: start talking, show an item, and say “Map this can to a joystick.” Cartesia Ink transcribes the command, Sonic confirms it, and the mapped joystick can drive real W/A/S/D in the focused Mac app after Accessibility permission is granted. Common camera, calibration, tracking, and output controls have explicit spoken commands. Choose Game mode for held keys or Document mode for repeated letters. Overhead-only mode works without an iPhone. See [voice mapping setup](docs/voice-joystick.md) for calibration, stopping, permissions and background-capture limits.
 
 Voice commands can also use the ASI:One mapping agent: add `ASI1_API_KEY` locally, start the overhead camera, then click **Talk to map**. See [Morph voice mapping](docs/morph-mapping.md) for the input catalog, supported outputs and examples.
 

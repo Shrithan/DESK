@@ -131,6 +131,10 @@ async function activateMorph(mapping,message){
 }
 async function applyVoiceCommand(result){
  $('command-transcript').textContent='Heard: “'+result.transcript+'”';
+ if(typeof routeStudioCommand==='function'){
+  const local=await routeStudioCommand(result.transcript);
+  if(local?.handled){$('command-status').textContent=local.message;if(typeof bearCaption==='function')bearCaption(local.message);if(!local.silent&&typeof bearSay==='function')void bearSay(local.message);return;}
+ }
  if(/^\s*(stop listening|turn off (hands[- ]?free|voice commands))\s*[.!?]?\s*$/i.test(result.transcript)){stopHandsFree();$('command-status').textContent='Hands-free listening off · microphone off';return;}
  if(result.intent?.action==='stop_keys'){await stopRealKeys('Stopped by voice');$('command-status').textContent='Keyboard output stopped.';void commandReply('keys_stopped');return;}
  if(!running||studioDemo)throw new Error('Start the real camera first, then show your item.');
@@ -140,9 +144,10 @@ async function applyVoiceCommand(result){
  const answer=await response.json();if(version!==commandVersion)return;
  if(!response.ok)throw new Error(answer.error||'Mapping agent failed.');
  const plan=answer.plan;
- if(plan.status==='stop'){await stopRealKeys('Stopped by agent');$('command-status').textContent=plan.message;void speakMappingReply(answer.reply_id);return;}
- if(plan.status!=='ready'){$('command-status').textContent=plan.message;void speakMappingReply(answer.reply_id);return;}
+ if(plan.status==='stop'){await stopRealKeys('Stopped by agent');$('command-status').textContent=plan.message;if(typeof bearCaption==='function')bearCaption(plan.message);void speakMappingReply(answer.reply_id);return;}
+ if(plan.status!=='ready'){$('command-status').textContent=plan.message;if(typeof bearCaption==='function')bearCaption(plan.message);void speakMappingReply(answer.reply_id);return;}
  await activateMorph(plan.mapping,plan.message);
+ if(typeof bearCaption==='function')bearCaption(plan.message);
  void speakMappingReply(answer.reply_id);
 }
 async function finishCommand(send=true){
@@ -154,7 +159,7 @@ async function finishCommand(send=true){
  const version=commandVersion,controller=new AbortController();commandRequest=controller;
  const timer=setTimeout(()=>controller.abort(),55000);$('command-status').textContent='Cartesia is listening to your command… microphone off';
  try{const response=await fetch('/api/voice/transcribe',{method:'POST',headers:{'Content-Type':'audio/wav'},body:encodeCommandWav(rec.chunks,rec.context.sampleRate),signal:controller.signal});const result=await response.json();if(!response.ok)throw new Error(result.error||'Voice transcription failed.');if(version===commandVersion)await applyVoiceCommand(result);}
- catch(err){if(version===commandVersion)$('command-status').textContent=err.name==='AbortError'?'Voice request cancelled or timed out.':err.message;}
+ catch(err){if(version===commandVersion){const message=err.name==='AbortError'?'Voice request cancelled or timed out.':err.message;$('command-status').textContent=message;if(typeof bearSay==='function'&&handsFreeEnabled())void bearSay(message);}}
  finally{clearTimeout(timer);if(version===commandVersion){commandRequest=null;$('command-talk').disabled=false;$('command-cancel').disabled=true;resumeHandsFree();}}
 }
 async function startCommand(){

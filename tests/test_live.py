@@ -432,6 +432,26 @@ def test_voice_http_routes_and_camera_lock_independence():
         connection.close()
 
 
+def test_bear_utterance_uses_server_side_cartesia_and_rejects_unbounded_text():
+    import io
+    from vision.reply_speech import ReplySpeech
+    audio=b'RIFF'+b'\x00'*4+b'WAVE'+b'fixture'
+    seen=[]
+    def transport(request, timeout):
+        seen.append(json.loads(request.data)['transcript'])
+        return io.BytesIO(audio)
+    with running_server() as server:
+        server.reply_speech=ReplySpeech(config=lambda:{'CARTESIA_API_KEY':'fixture'},transport=transport)
+        connection=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=2)
+        connection.request('POST','/api/voice/utterance',json.dumps({'text':'Camera started.'}),{'Content-Type':'application/json'})
+        response=connection.getresponse();assert response.status==200 and response.read()==audio
+        assert seen==['Camera started.']
+        connection.request('POST','/api/voice/utterance',json.dumps({'text':'x'*301}),{'Content-Type':'application/json'})
+        response=connection.getresponse();assert response.status==400;response.read()
+        assert seen==['Camera started.']
+        connection.close()
+
+
 def test_usb_status_route_keeps_private_device_data_off_wire():
     class Guard:
         def status(self):return dict(required=True,verified=True,connected=False,phone_count=0,video_transport='unverified')

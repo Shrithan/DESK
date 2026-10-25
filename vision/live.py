@@ -847,6 +847,9 @@ class Handler(BaseHTTPRequestHandler):
                   '/prediction.js':('prediction.js','text/javascript; charset=utf-8'),
                   '/fusion.js':('fusion.js','text/javascript; charset=utf-8'),
                   '/fusion.css':('fusion.css','text/css; charset=utf-8'),
+                  '/mascot.css':('mascot.css','text/css; charset=utf-8'),
+                  '/mascot.js':('mascot.js','text/javascript; charset=utf-8'),
+                  '/cal-bear.webp':('cal-bear.webp','image/webp'),
                   '/app.js':('app.js','text/javascript; charset=utf-8'),
                   '/webcam.css':('webcam.css','text/css; charset=utf-8'),
                   '/style.css':('style.css','text/css; charset=utf-8')}
@@ -977,6 +980,15 @@ class Handler(BaseHTTPRequestHandler):
                     self.send(200,result)
                 except PermissionError as exc:self.send(403,dict(error=str(exc)))
                 except RuntimeError as exc:self.send(503,dict(error=str(exc)))
+                return
+            if path == '/api/voice/utterance':
+                if self.headers.get_content_type() != 'application/json' or length > 512:
+                    raise ValueError('Expected a short spoken reply.')
+                payload = json.loads(body)
+                if not isinstance(payload,dict) or not isinstance(payload.get('text'),str) or not 1 <= len(payload['text'].strip()) <= 300:
+                    raise ValueError('Expected a short spoken reply.')
+                try:self.send(200,self.server.reply_speech.speak(payload['text']),'audio/wav')
+                except VoiceError as exc:self.send(exc.status,dict(error=str(exc)))
                 return
             if path == '/api/voice/speak':
                 if self.headers.get_content_type() != 'application/json' or length > 256:

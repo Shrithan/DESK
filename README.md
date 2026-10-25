@@ -1,3 +1,16 @@
+# DESK · Spatial DJ for Mixxx
+
+Current DJ workflow: overhead camera → multiple physical sliders → real Mixxx MIDI
+controls. Deck A/B volume, crossfader and EQ are available, with travel calibration,
+smoothing, pickup and actual mixer feedback. See [Mixxx setup and usage](docs/mixxx-dj.md).
+
+```sh
+.venv/bin/python -m pip install -e '.[ai,dj]'
+.venv/bin/python -m vision.live --port 8765 --device mps --model-size x --temporal flow
+```
+
+Open http://localhost:8765. Historical tracker documentation follows.
+
 # Phantom vision — local webcam tracker
 
 Current demo: `.venv/bin/python -m vision.live`, then open
@@ -122,3 +135,11 @@ Voice commands can also use the ASI:One mapping agent: add `ASI1_API_KEY` locall
 Physical inputs now bind to a discoverable desktop action registry: joystick keyboard input, movement-to-scroll, cover-to-press buttons, volume and built-in display brightness. Continuous action adapters reuse the same slider runtime. See [desktop action setup and limits](docs/desktop-actions.md).
 
 Optional **EdgeTAM + optical flow** hybrid tracking is available with `--temporal edgetam`. See [setup, launch command and measured limitations](docs/temporal-tracking.md).
+
+## Game controller modules
+
+The Can controllers panel provides Subway City can tilt → arrow swipes and two-axis can sliding → W/A/S/D. Both reuse the native keyboard watchdog. See [game module setup](docs/game-modules.md).
+
+## General controls module
+
+Manually map horizontal/vertical sliders to volume, brightness or scrolling, and cover-buttons to key presses or opening apps. Save several mappings, activate one at a time. See [general controls setup](docs/general-controls.md).

@@ -39,7 +39,7 @@ class ActionRuntime:
             self.origin=self._position(snapshot);self.filtered=self.origin;self.scroll_anchor=self.origin;self.updated=self.clock();self.last_write=-float('inf')
             if kind=='continuous':self.start_value=self.value=float(target['adapter'].get_value())
             if mapping['controller']=='cover_button':
-                try:self.hand=self.hand_factory();self.cover=CoverButton(snapshot['frame'],snapshot['bbox'],self.clock())
+                try:self.hand=self.hand_factory();self.cover=CoverButton(snapshot['frame'],snapshot['bbox'],self.clock(),immediate=True)
                 except Exception:
                     self.stop('Cover detector could not start');raise
             self.token=secrets.token_urlsafe(24);self.reason='Armed · waiting for measured input';self.enabled=False
@@ -61,7 +61,8 @@ class ActionRuntime:
                 self.enabled=False
                 self.reason='Camera briefly unavailable · output paused'
                 if cover:self.cover.phase='missing';self.cover.since=None
-                if now-self.last_good_input>2.:self.stop('Camera unavailable for 2 seconds · re-arm control')
+                # Keep the mapping lease while dashboard heartbeats continue.
+                # Missing measurements pause execution; only the watchdog/Stop disarms.
                 return self.status()
             self.last_good_input=now
             if not enabled:
@@ -76,8 +77,12 @@ class ActionRuntime:
             dt=min(.15,max(.001,now-self.updated));self.updated=now
             try:
                 if cover:
-                    coverage=self.hand.coverage(sample['frame'],self.cover.bbox,now)
+                    hand_coverage=self.hand.coverage(sample['frame'],self.cover.bbox,now)
+                    x,y,x2,y2=self.cover.bbox
+                    object_coverage=max([max(0,min(x2,b[2])-max(x,b[0]))*max(0,min(y2,b[3])-max(y,b[1]))/max(1,(x2-x)*(y2-y)) for b in sample.get('occluders',[])]+[0.])
+                    coverage=max(hand_coverage,object_coverage)
                     self.details=self.cover.step(sample['frame'],coverage,now)
+                    self.details['evidence']='covered' if coverage>.55 and self.details['appearance_change']>.12 else 'tracking_lost' if not sample['tracked'] else 'clear'
                     self.details['value']=int(self.details['phase']=='pressed' and coverage>.3 and self.details['appearance_change']>.06)
                     if self.details['fire']:
                         if self.target['kind']=='trigger':self.target['adapter'].trigger()
@@ -134,3 +139,38 @@ class ActionRuntime:
     def close(self):
         self.stopping.set();self.stop('Server stopped')
         if self.thread:self.thread.join(timeout=1)
+
+class ActionGroup:
+    """Independent leases for simultaneous manually mapped controls."""
+    def __init__(self,snapshot,registry):
+        self.snapshot,self.registry=snapshot,registry
+        self.runtimes={};self.lock=threading.RLock()
+
+    def arm(self,mapping):
+        with self.lock:
+            # Reuse an identical activation; independent mappings retain their leases.
+            for token,runtime in list(self.runtimes.items()):
+                if not runtime.token:
+                    runtime.close();self.runtimes.pop(token)
+                elif runtime.mapping==mapping:
+                    return dict(token=token,**runtime.status())
+            runtime=ActionRuntime(self.snapshot,registry=self.registry,start_watchdog=True)
+            try:result=runtime.arm(mapping)
+            except Exception:runtime.close();raise
+            self.runtimes[result['token']]=runtime
+            return result
+
+    def update(self,token,sequence,enabled):
+        with self.lock:runtime=self.runtimes.get(token)
+        if not runtime:raise PermissionError('Control is no longer active.')
+        return runtime.update(token,sequence,enabled)
+
+    def stop(self,token=None):
+        with self.lock:
+            tokens=[token] if token else list(self.runtimes)
+            for key in tokens:
+                runtime=self.runtimes.pop(key,None)
+                if runtime:runtime.close()
+        return dict(armed=False,reason='Controls stopped')
+
+    def close(self):self.stop()

@@ -184,3 +184,17 @@ def test_different_appearance_reentry_is_not_the_original_slider(monkeypatch):
     different=scene(510)[0];different[120:200,510:590]=np.random.default_rng(37).integers(10,50,(80,80,3),dtype=np.uint8)
     for _ in range(3):clock[0]+=.2;s.receive(jpeg(different))
     assert s.objects[oid]['observation']['tracking_state']=='lost'
+
+def test_lid_class_change_reentry_preserves_pinned_identity(monkeypatch):
+    clock=[100.];monkeypatch.setattr('vision.live.time.monotonic',lambda:clock[0])
+    e=MovingCan();e.x=40;s=LiveSession(engine=e);s.workspace_multi=True;s.overhead=True
+    for _ in range(3):clock[0]+=.2;s.receive(jpeg(scene(40)[0]))
+    oid=next(iter(s.objects));s.objects[oid]['persistent_identity']=True
+    s.objects[oid]['label']='disk'
+    target=s.tracker.targets[(s.camera_id,oid)];target.reference_descriptors=None
+    real=e.detect;e.detect=lambda f:[]
+    for _ in range(5):clock[0]+=30;s.receive(jpeg(np.full((360,640,3),90,np.uint8)))
+    e.detect=real;e.x=510
+    for _ in range(4):clock[0]+=.2;result=s.receive(jpeg(scene(510)[0]))
+    assert list(s.objects)==[oid]
+    assert result['objects'][0]['observation']['tracking_state']=='tracked'

@@ -10,6 +10,7 @@ dependencies = ["numpy>=1.26,<3", "opencv-python>=4.10,<5"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10"]
+dj = ["python-rtmidi>=1.5,<2"]
 ai = ["ultralytics>=8.3,<9"]
 gestures = ["mediapipe>=0.10,<2", "opencv-contrib-python>=4.10,<5"]
 joystick = ["pynput>=1.7", "pydantic>=2", "websockets>=12"]

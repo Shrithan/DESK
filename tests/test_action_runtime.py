@@ -82,9 +82,9 @@ def test_cover_jitter_frame_changes_disabled_focus_and_tokens():
     r,e,p,n,s,t,h,m=setup('keyboard','cover_button')
     for _ in range(5):t()
     h.amount=.9;s['frame'][25:65,25:65]=220;t();h.amount=0;t()
-    assert not e.presses
+    assert e.presses==['space'],'confirmed cover triggers immediately'
     for _ in range(5):t(enabled=False)
-    assert not e.presses
+    assert e.presses==['space']
     with pytest.raises(PermissionError):r.update('wrong-owner',99,True)
     s['frame']=np.zeros((120,100,3),np.uint8)
     with pytest.raises(RuntimeError):t()
@@ -125,7 +125,9 @@ def test_short_snapshot_lock_contention_does_not_drop_mapping():
     token=r.token;original=r.snapshot;r.snapshot=lambda *args:None
     assert r.update(token,1,True)['armed']
     n[0]+=2.1
-    assert not r.update(token,2,True)['armed']
+    assert r.update(token,2,True)['armed']
+    n[0]+=.5;r.tick()
+    assert not r.status()['armed']
     r.close()
 
 
@@ -149,4 +151,61 @@ def test_parameter_slider_has_doubled_gain_and_reaches_target_quickly():
     for _ in range(8):t()
     assert p.value==pytest.approx(.8,abs=.005),'10% field travel should change the value by 30 percentage points'
     assert all(0<=value<=1 for value in p.writes)
+    r.close()
+
+def test_missing_snapshot_retains_activation_while_heartbeats_continue():
+    r,e,p,n,s,t,h,m=setup('test.synth_filter')
+    t();token=r.token;r.snapshot=lambda *args:None
+    for _ in range(50):t()
+    assert r.token==token and r.status()['armed']
+    assert not p.writes
+    r.snapshot=lambda *args:s
+    s['position'][1]=.9
+    for _ in range(5):t()
+    assert r.token==token and not p.writes
+    n[0]+=.5;r.tick()
+    assert not r.status()['armed'],'lost heartbeat still disarms'
+    r.close()
+
+def test_immediate_cover_uses_small_center_and_tracking_loss_alone_never_fires():
+    r,e,p,n,s,t,h,m=setup('keyboard','cover_button')
+    assert r.cover.bbox==(33,33,57,57)
+    for _ in range(5):t()
+    s['tracked']=False;s['frame'][:]=0
+    t();assert not e.presses
+    s['tracked']=True;s['frame'][:]=60
+    for _ in range(5):t()
+    h.amount=.9;s['tracked']=False;s['frame'][33:57,33:57]=230
+    t();assert e.presses==['space']
+    assert r.details['evidence']=='covered'
+    for _ in range(10):t()
+    assert len(e.presses)==1
+    r.close()
+
+
+def test_action_group_keeps_independent_mappings_active(monkeypatch):
+    import vision.action_runtime as module
+    made=[]
+    class Runtime:
+        def __init__(self,*a,**kw):self.token=None;made.append(self)
+        def arm(self,m):self.mapping=m;self.token=str(len(made));return dict(token=self.token,armed=True)
+        def status(self):return dict(armed=bool(self.token))
+        def update(self,*a):return self.status()
+        def close(self):self.token=None
+    monkeypatch.setattr(module,'ActionRuntime',Runtime)
+    group=module.ActionGroup(None,None)
+    a=group.arm(dict(object_id='a',output='audio.volume'))
+    b=group.arm(dict(object_id='b',output='display.brightness'))
+    assert group.update(a['token'],1,True)['armed']
+    assert group.update(b['token'],1,True)['armed']
+    group.stop(a['token'])
+    assert group.update(b['token'],2,True)['armed']
+    group.close();assert not made[1].token
+
+def test_detected_occluding_object_can_press_without_a_hand():
+    r,e,p,n,s,t,h,m=setup('keyboard','cover_button')
+    for _ in range(5):t()
+    s['tracked']=False;s['frame'][25:65,25:65]=230
+    s['occluders']=[[28,28,62,62]]
+    t();assert e.presses==['space']
     r.close()

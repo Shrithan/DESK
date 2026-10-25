@@ -4,6 +4,7 @@ function unregisteredButtonState(){return {value:null,phase:'unmapped',presses:0
 async function assignDetectedButton(entry){
  try{
   if(!running||studioDemo)throw Error('Start the overhead camera and show the object first.');
+  if(typeof removeDJSource==='function')await removeDJSource(entry.id);
   await stopRealKeys('Mapping an object to a 0/1 button');
   if(typeof useOverheadJoystick==='function')await useOverheadJoystick();
   const state=await api('/api/buttons/add',{object_id:entry.id},'top');

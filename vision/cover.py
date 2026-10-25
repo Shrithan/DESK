@@ -35,9 +35,13 @@ class HandDetector:
 
 
 class CoverButton:
-    def __init__(self,frame,bbox,now):
+    def __init__(self,frame,bbox,now,immediate=False):
         h,w=frame.shape[:2];x,y,x2,y2=map(int,bbox)
         if min(x2-x,y2-y)<12 or x<8 or y<8 or x2>w-8 or y2>h-8:raise ValueError('Place the cover target away from the camera edges and select at least 12 pixels.')
+        self.immediate=immediate
+        if immediate:
+            cx,cy=(x+x2)/2,(y+y2)/2;rw,rh=max(12,(x2-x)*.6),max(12,(y2-y)*.6)
+            x,y,x2,y2=map(int,(cx-rw/2,cy-rh/2,cx+rw/2,cy+rh/2))
         self.bbox=(x,y,x2,y2);self.shape=frame.shape
         self.reference=self.patch(frame);self.phase='learning';self.since=now;self.last=now;self.count=0
 
@@ -59,7 +63,9 @@ class CoverButton:
                 if now-self.since>=.35:self.phase='ready';self.since=None
             else:self.since=None
         elif self.phase=='ready':
-            if covered:self.phase='covering';self.since=now
+            if covered:
+                if self.immediate:self.phase='pressed';self.since=None;self.count+=1;fire=True
+                else:self.phase='covering';self.since=now
             elif coverage<.08 and difference>=.11:self.phase='missing';self.since=None
         elif self.phase=='covering':
             if covered and now-self.since>=.18:self.phase='pressed';self.since=None;self.count+=1;fire=True

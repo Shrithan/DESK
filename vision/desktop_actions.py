@@ -103,6 +103,9 @@ class ActionRegistry:
         self.register('desktop.scroll',dict(label='Scroll the application under the pointer',kind='relative',controllers=['slider_x','slider_y'],bindings=dict(negative='up',positive='down')),None)
         self._discover('display.brightness','Built-in display brightness',DisplayBrightness)
         self._discover('audio.volume','Current audio output volume',OutputVolume)
+        from vision.mixxx import TARGETS, MixxxParameter
+        for target,spec in TARGETS.items():
+            self.register(target,dict(label='Mixxx · '+spec['label'],kind='continuous',controllers=['slider_x','slider_y'],bindings=dict(negative='decrease',positive='increase'),range=[0,1]),MixxxParameter(target))
         from vision.app_actions import installed_apps, OpenApplication
         for bundle,label,path in installed_apps():
             self.register('app.open.'+bundle,dict(label='Open '+label,kind='trigger',
@@ -118,7 +121,13 @@ class ActionRegistry:
             adapter=factory();spec['range']=[getattr(adapter,'minimum',0.),1.];self.register(identifier,spec,adapter)
         except (OSError,AttributeError,RuntimeError) as exc:self.register(identifier,spec,None,str(exc))
 
-    def catalog(self):return {key:{k:v for k,v in value.items() if k!='adapter'} for key,value in self.targets.items()}
+    def catalog(self):
+        result={}
+        for key,value in self.targets.items():
+            spec={k:v for k,v in value.items() if k!='adapter'}
+            if hasattr(value['adapter'],'availability'):spec['available'],spec['reason']=value['adapter'].availability()
+            result[key]=spec
+        return result
 
     def target(self,identifier):
         target=self.targets.get(identifier)

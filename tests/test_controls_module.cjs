@@ -1,0 +1,11 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('vision/web/controls.js','utf8'),c={};vm.createContext(c);vm.runInContext(source.slice(0,source.indexOf('let controlsCatalog')),c);
+assert.equal(c.controlMapping('a','slider_x','audio.volume').bindings.positive,'increase');
+assert.equal(c.controlMapping('a','slider_y','display.brightness').bindings.negative,'increase','up increases');
+assert.equal(c.controlMapping('a','slider_y','display.brightness',null,true).bindings.positive,'increase');
+assert.equal(c.controlMapping('a','slider_x','desktop.scroll').bindings.negative,'up');
+assert.equal(c.controlMapping('a','slider_x','desktop.scroll',null,true).bindings.negative,'down');
+assert.equal(c.controlMapping('a','cover_button','keyboard','space').bindings.press,'space');
+assert.equal(c.controlMapping('a','cover_button','app.open.com.apple.calculator').bindings.press,'open');
+assert.throws(()=>c.controlMapping('','slider_x','audio.volume'),/visible object/);
+console.log('General controls: horizontal/vertical direction, reversal, scroll, key button, app button and missing-source validation pass.');

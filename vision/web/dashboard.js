@@ -17,7 +17,7 @@ function createStudioCard(key){
  studioCards.set(key,card);$('control-registry').append(el);return card;
 }
 function action(card,label,fn,disabled=false){if(!card.rebuild){const existing=card.actions.children[card.actionIndex++];if(existing)existing.disabled=disabled;return;}card.actionIndex++;const b=document.createElement('button');b.textContent=label;b.disabled=disabled;b.addEventListener('click',()=>fn(card.item));card.actions.append(b);}
-function assignInput(entry,mode){if(mode==='xy'&&typeof useOverheadJoystick==='function')void useOverheadJoystick();flatInputs.set(entry.id,{mode,pivot:mode==='xy',label:entry.name,range:null});const p=pairs.find(p=>p.top===entry.id);if(p)pairs.splice(pairs.indexOf(p),1);candidates.clear();renderFlatInputs();updateStudio();}
+async function assignInput(entry,mode){if(typeof removeDJSource==='function')await removeDJSource(entry.id);if(mode==='xy'&&typeof useOverheadJoystick==='function')void useOverheadJoystick();flatInputs.set(entry.id,{mode,pivot:mode==='xy',label:entry.name,range:null});const p=pairs.find(p=>p.top===entry.id);if(p)pairs.splice(pairs.indexOf(p),1);candidates.clear();renderFlatInputs();updateStudio();}
 function updateStudio(){
  const items=registryItems(),keys=new Set(items.map(x=>x.key));
  for(const [key,card] of studioCards)if(!keys.has(key)){card.el.remove();studioCards.delete(key);}
@@ -44,7 +44,7 @@ function updateStudio(){
   drawObjectProxy(card.proxy,{kind:entry.type==='object'?'bottle':'disk',yaw,active:entry.active,color:entry.type==='slider'?'#efca90':'#a9e9cf'});
   const ctx=card.control.getContext('2d'),w=260,h=200;ctx.clearRect(0,0,w,h);
   ctx.fillStyle='#101a1c';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#2b4447';ctx.lineWidth=1;
-  card.rebuild=card.kind!==entry.type;card.actionIndex=0;if(card.rebuild)card.actions.replaceChildren();card.kind=entry.type;
+  const actionKind=entry.type+':'+(entry.input?.djTarget||'');card.rebuild=card.kind!==actionKind;card.actionIndex=0;if(card.rebuild)card.actions.replaceChildren();card.kind=actionKind;
   if(entry.type==='button'){
    const state=entry.input.actionState||{},pressed=entry.active&&(state.value!=null?state.value===1:state.phase==='pressed');
    ctx.fillStyle=pressed?'#f2dd83':'#344037';ctx.beginPath();ctx.arc(130,100,65,0,Math.PI*2);ctx.fill();
@@ -73,8 +73,9 @@ function updateStudio(){
    for(let j=0;j<=10;j++){ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(25+j*21,116);ctx.lineTo(25+j*21,123);ctx.stroke();}
    if(entry.active&&value!=null){ctx.strokeStyle='#efca90';ctx.lineWidth=10;ctx.beginPath();ctx.moveTo(25,100);ctx.lineTo(25+value*210,100);ctx.stroke();ctx.fillStyle='#efca90';ctx.fillRect(18+value*210,80,14,40);}
    card.values.textContent=entry.active&&value!=null?`${(value*100).toFixed(1)}% · ${entry.input.mode==='x'?'horizontal':'vertical'}`:'— · input inactive';
-   for(const end of [0,1])action(card,`Set ${end*100}%`,e=>{const raw=flatValue(e.item.motion.center_px,[cameras.top.canvas.width,cameras.top.canvas.height],'xy');e.input.range=e.input.range||[0,1];e.input.range[end]=e.input.mode==='y'?raw.y:raw.x;e.input.filters={};e.input.filterStamp=null;renderFlatInputs();},!entry.active);
-   action(card,'X ↔ Y',e=>{e.input.mode=e.input.mode==='x'?'y':'x';e.input.range=null;});
+   if(!entry.input.djTarget)for(const end of [0,1])action(card,`Set ${end*100}%`,e=>{const raw=flatValue(e.item.motion.center_px,[cameras.top.canvas.width,cameras.top.canvas.height],'xy');e.input.range=e.input.range||[0,1];e.input.range[end]=e.input.mode==='y'?raw.y:raw.x;e.input.filters={};e.input.filterStamp=null;renderFlatInputs();},!entry.active);
+   if(!entry.input.djTarget)action(card,'X ↔ Y',e=>{e.input.mode=e.input.mode==='x'?'y':'x';e.input.range=null;});
+   if(entry.input.djTarget)card.rotation.textContent='MIXXX · Calibrate travel and enable output in the DJ mixer panel above.';
    action(card,'Make joystick',e=>assignInput(e,'xy'));
   }else if(entry.type==='object'){
    drawObjectProxy(card.control,{kind:'bottle',yaw,active:entry.active,color:colors[(entry.pair.number-1)%colors.length]});
@@ -87,7 +88,7 @@ function updateStudio(){
    action(card,'Add joystick',e=>assignInput(e,'xy'));action(card,'Add slider',e=>assignInput(e,'x'));
   }
   if(entry.type!=='button')action(card,'Use as button',e=>void assignDetectedButton({id:e.id||e.pair.top,name:e.name}));
-  if(['joystick','slider','button'].includes(entry.type))action(card,'Remove',e=>{flatInputs.delete(e.id);dismissedFlatInputs.add(e.id);if(e.input.previewOnly)void api('/api/buttons/remove',{object_id:e.id},'top').catch(()=>{});updateStudio();});
+  if(['joystick','slider','button'].includes(entry.type))action(card,'Remove',async e=>{if(typeof removeDJSource==='function')await removeDJSource(e.id);flatInputs.delete(e.id);dismissedFlatInputs.add(e.id);if(e.input.previewOnly)void api('/api/buttons/remove',{object_id:e.id},'top').catch(()=>{});updateStudio();});
  }
  let empty=$('registry-empty');if(!empty){empty=document.createElement('div');empty.id='registry-empty';empty.className='registry-empty';$('control-registry').append(empty);}
  empty.hidden=items.some(e=>studioFilter==='all'||e.type===studioFilter);

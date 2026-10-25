@@ -486,7 +486,7 @@ class LiveSession:
             keys=descriptors=None
             for oid,meta in self.objects.items():
                 obs=observations.get(oid)
-                if not obs or obs['tracking_state']!='lost' or time.monotonic()-meta['support']>REENTRY_S:
+                if not obs or obs['tracking_state']!='lost' or (not meta.get('persistent_identity') and time.monotonic()-meta['support']>REENTRY_S):
                     continue
                 compatible=self._compatible(d['label'],meta['label'])
                 lid=self.overhead and {d['label'],meta['label']}.issubset({'disk','can','cup','bottle'})
@@ -514,8 +514,17 @@ class LiveSession:
                 # Texture-poor sliders can use a very strong appearance match,
                 # but only if no other object has a compatible enrolled class.
                 isolated=not any(other!=oid and (self._compatible(m['label'],meta['label']) or self.overhead and {m['label'],meta['label']}.issubset({'disk','can','cup','bottle'})) for other,m in self.objects.items())
-                if proven or compatible and isolated and similarity>=.92:
+                # Detector class flicker (disk/cup/can) is not a new identity.
+                # Compare appearance rivals instead of rejecting recovery merely
+                # because another enrolled object shares the same broad class.
+                rival=any(other!=oid and max(appearance_similarity(m.get('appearance'),signature),
+                          appearance_similarity(m.get('reference_appearance'),signature))>=similarity-.08
+                          for other,m in self.objects.items()
+                          if self._compatible(m['label'],meta['label']) or self.overhead and {m['label'],meta['label']}.issubset({'disk','can','cup','bottle'}))
+                if proven or (compatible or lid) and similarity>=.92 and not rival:
                     choices.append(oid)
+                elif similarity>=.85:
+                    reserved.add(i)  # plausible remembered object: wait, never mint a duplicate
             if len(choices)!=1:
                 if choices:reserved.add(i)  # ambiguous remembered items must not mint a replacement ID
                 continue
@@ -726,13 +735,16 @@ class LiveServer(ThreadingHTTPServer):
         self.reply_speech=ReplySpeech()
         self.agent_replies={};self.reply_lock=threading.Lock()
         from vision.morph import MorphPlanner
-        from vision.action_runtime import ActionRuntime
+        from vision.action_runtime import ActionRuntime, ActionGroup
         from vision.morph import catalog
         from vision.cover import HandDetector
         self.actions=ActionRuntime(self.action_snapshot)
+        self.control_actions=ActionGroup(self.action_snapshot,self.actions.registry)
         from vision.button_inputs import ObjectButtons
         self.object_buttons=ObjectButtons(self.action_snapshot)
         self._action_snapshots={}
+        from vision.mixxx import DJRuntime
+        self.dj=DJRuntime(self.action_snapshot)
         self.morph = MorphPlanner(catalog_provider=lambda:catalog(self.actions.registry.catalog(),HandDetector.available()))
         self.keyboard = KeyboardOutput(visible=self.key_object_visible)
 
@@ -753,8 +765,12 @@ class LiveServer(ThreadingHTTPServer):
                 return None
             bbox=meta['observation'].get('bbox_xyxy') or meta['bbox']
             h,w=session.frame.shape[:2]
-            snapshot=dict(tracked=meta['observation']['tracking_state']=='tracked',bbox=list(bbox),
-                        position=[(bbox[0]+bbox[2])/(2*w),(bbox[1]+bbox[3])/(2*h)],
+            occluders=[list(d['bbox']) for d in session.detections
+                       if d.get('bbox') and (d.get('track_id') not in (None,oid) or
+                       d.get('track_id') is None and d.get('label')!=meta['label'] and
+                       (d['bbox'][2]-d['bbox'][0])*(d['bbox'][3]-d['bbox'][1])>1.5*(bbox[2]-bbox[0])*(bbox[3]-bbox[1]))]
+            snapshot=dict(tracked=meta['observation']['tracking_state']=='tracked',bbox=list(bbox),occluders=occluders,
+                        position=[(bbox[1]+bbox[3])/(2*h),1-(bbox[0]+bbox[2])/(2*w)],
                         stamp=session.last_received,frame_id=session.frame_id,
                         frame=session.frame)
             if oid not in self._action_snapshots and len(self._action_snapshots)>=16:
@@ -790,8 +806,10 @@ class LiveServer(ThreadingHTTPServer):
             session.lock.release()
 
     def server_close(self):
+        if hasattr(self,'dj'):self.dj.bridge.close()
         if hasattr(self,'object_buttons'):self.object_buttons.close()
         if hasattr(self,'keyboard'):self.keyboard.close()
+        if hasattr(self,'control_actions'):self.control_actions.close()
         if hasattr(self,'actions'):self.actions.close()
         super().server_close()
 
@@ -843,6 +861,9 @@ class Handler(BaseHTTPRequestHandler):
                   '/motion-filter.js':('motion-filter.js','text/javascript; charset=utf-8'),
                   '/dashboard.js':('dashboard.js','text/javascript; charset=utf-8'),
                   '/object-buttons.js':('object-buttons.js','text/javascript; charset=utf-8'),
+                  '/dj.js':('dj.js','text/javascript; charset=utf-8'),
+                  '/game-controls.js':('game-controls.js','text/javascript; charset=utf-8'),
+                  '/controls.js':('controls.js','text/javascript; charset=utf-8'),
                   '/flat-input.js':('flat-input.js','text/javascript; charset=utf-8'),
                   '/prediction.js':('prediction.js','text/javascript; charset=utf-8'),
                   '/fusion.js':('fusion.js','text/javascript; charset=utf-8'),
@@ -856,6 +877,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200,self.server.morph.status())
         elif path == '/api/actions/status':
             self.send(200,self.server.actions.status())
+        elif path == '/api/dj/status':
+            self.send(200,self.server.dj.status())
         elif path == '/api/buttons/status':
             self.send(200,self.server.object_buttons.status())
         elif path == '/api/keys/status':
@@ -924,6 +947,23 @@ class Handler(BaseHTTPRequestHandler):
                 try:self.send(200,self.server.reply_speech.speak(text),'audio/wav')
                 except VoiceError as exc:self.send(exc.status,dict(error=str(exc)))
                 return
+            if path.startswith('/api/dj/'):
+                if self.headers.get_content_type()!='application/json' or length>8192:raise ValueError('Expected a small DJ request.')
+                payload=json.loads(body)
+                if not isinstance(payload,dict):raise ValueError('Invalid DJ request.')
+                try:
+                    if path=='/api/dj/connect':result=self.server.dj.bridge.connect()
+                    elif path=='/api/dj/bind':result=self.server.dj.bind(payload.get('object_id'),payload.get('target'),payload.get('axis'),payload.get('reverse',False))
+                    elif path=='/api/dj/calibrate':result=self.server.dj.calibrate(payload.get('target'),payload.get('end'))
+                    elif path=='/api/dj/arm':result=self.server.dj.arm(payload.get('enabled'))
+                    elif path=='/api/dj/update':result=self.server.dj.update()
+                    elif path=='/api/dj/test':
+                        self.server.dj.bridge.set_value(payload.get('target'),payload.get('value'));result=self.server.dj.status()
+                    elif path=='/api/dj/remove':result=self.server.dj.remove(payload.get('target'))
+                    else:self.send(404,dict(error='Not found'));return
+                    self.send(200,result)
+                except (RuntimeError,OSError,ImportError) as exc:self.send(503,dict(error=str(exc)))
+                return
             if path.startswith('/api/buttons/'):
                 if self.headers.get_content_type()!='application/json' or length>8192:raise ValueError('Expected a small button request.')
                 payload=json.loads(body)
@@ -936,7 +976,20 @@ class Handler(BaseHTTPRequestHandler):
                     self.send(200,result)
                 except (RuntimeError,OSError) as exc:self.send(503,dict(error=str(exc)))
                 return
+            if path.startswith('/api/controls/'):
+                payload=json.loads(body)
+                if path=='/api/controls/arm':
+                    from vision.morph import validate_plan
+                    mapping=payload.get('mapping')
+                    validate_plan(dict(status='ready',message='Activate control',mapping=mapping),self.server.mapping_objects(),self.server.morph.catalog_provider())
+                    result=self.server.control_actions.arm(mapping)
+                    self.server.sessions['top'].objects[mapping['object_id']]['persistent_identity']=True
+                elif path=='/api/controls/update':result=self.server.control_actions.update(payload.get('token'),payload.get('sequence'),payload.get('enabled'))
+                elif path=='/api/controls/stop':result=self.server.control_actions.stop(payload.get('token'))
+                else:raise ValueError('Unknown controls request.')
+                self.send(200,result);return
             if path.startswith('/api/actions/'):
+
                 if self.headers.get_content_type()!='application/json' or length>8192:raise ValueError('Expected a small action request.')
                 payload=json.loads(body)
                 if not isinstance(payload,dict):raise ValueError('Expected an action object.')
@@ -947,6 +1000,7 @@ class Handler(BaseHTTPRequestHandler):
                         validate_plan(dict(status='ready',message='Activate mapping',mapping=mapping),self.server.mapping_objects(),self.server.morph.catalog_provider())
                         self.server.keyboard.disarm('New desktop action')
                         result=self.server.actions.arm(mapping)
+                        self.server.sessions['top'].objects[mapping['object_id']]['persistent_identity']=True
                     elif path=='/api/actions/update':result=self.server.actions.update(payload.get('token'),payload.get('sequence'),payload.get('enabled'))
                     elif path=='/api/actions/stop':result=self.server.actions.stop('Stopped from dashboard')
                     else:self.send(404,dict(error='Not found'));return
@@ -972,7 +1026,9 @@ class Handler(BaseHTTPRequestHandler):
                     elif path=='/api/keys/update':result=self.server.keyboard.update(payload.get('token'),payload.get('keys'),payload.get('sequence'))
                     elif path=='/api/keys/test':result=self.server.keyboard.test_taps()
                     elif path=='/api/keys/request-permission':result=dict(accessibility=request_accessibility_permission())
-                    elif path=='/api/keys/stop':result=self.server.keyboard.disarm('Stopped from dashboard')
+                    elif path=='/api/keys/stop':
+                        self.server.control_actions.stop()
+                        result=self.server.keyboard.disarm('Stopped from dashboard')
                     else:self.send(404,dict(error='Not found'));return
                     self.send(200,result)
                 except PermissionError as exc:self.send(403,dict(error=str(exc)))

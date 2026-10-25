@@ -100,12 +100,14 @@ function renderMorph(){
  const box=$('morph-active');box.textContent=morphMapping?`${morphMapping.controller} · ${morphMapping.object_id} → ${Object.entries(morphMapping.bindings).map(([d,k])=>d+': '+k.toUpperCase()).join(' · ')} · ${morphMapping.output||'keyboard'} · ${morphMapping.mode}`:'No AI mapping active.';
  $('morph-undo').disabled=!morphPrevious;
 }
-async function activateMorph(mapping,message){
+async function activateMorph(mapping,message,autoArm=true){
  const mappingVersion=commandVersion;
  const item=objects('top').find(o=>o.observation.object_id===mapping.object_id&&o.observation.tracking_state==='tracked');
  if(!running||studioDemo||!item||performance.timeOrigin+performance.now()-cameras.top.acceptedSample>250)throw new Error('Object is no longer visible. Show it and repeat your command.');
  if(!['joystick','slider_x','slider_y','cover_button'].includes(mapping.controller))throw new Error('Unsupported controller.');
+ if(mapping.output?.startsWith('mixxx.')&&typeof activateDJPlan==='function'){await activateDJPlan(mapping,message);return;}
  if(['joystick','cover_button'].includes(mapping.controller)&&typeof useOverheadJoystick==='function')await useOverheadJoystick();
+ if(typeof removeDJSource==='function')await removeDJSource(mapping.object_id);
  await stopRealKeys('Applying agent mapping');
  if(mappingVersion!==commandVersion)return;
  morphPrevious=morphMapping?structuredClone(morphMapping):null;morphMapping=structuredClone(mapping);
@@ -116,7 +118,7 @@ async function activateMorph(mapping,message){
  const input=flatInputs.get(id);input.morphCenter=input.current?.value;
  $('keyboard-target').value=id;$('keyboard-mode').value=mapping.mode;renderMorph();
  $('command-status').textContent=message+(mapping.controller==='joystick'?' Hold upright to learn neutral.':mapping.controller==='cover_button'?' Keep the object uncovered until ready. Cover once to trigger; uncover to reset. Keyboard output needs the local test field or another app focused.':' Move along the chosen camera axis. Re-arm here to learn a new center.');
- try{await armRealKeys(id);}catch(err){keyStatus(err.message+' · mapping ready, output off');}
+ if(autoArm)try{await armRealKeys(id);}catch(err){keyStatus(err.message+' · mapping ready, output off');}
 }
 async function applyVoiceCommand(result){
  $('command-transcript').textContent='Heard: “'+result.transcript+'”';

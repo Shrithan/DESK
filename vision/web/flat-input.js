@@ -57,6 +57,8 @@ function renderFlatInputs(){
    const cx=120,cy=110,radius=80;ctx.strokeStyle='#536247';ctx.lineWidth=2;ctx.beginPath();ctx.arc(cx,cy,radius,0,Math.PI*2);ctx.stroke();
    ctx.beginPath();ctx.moveTo(cx-radius,cy);ctx.lineTo(cx+radius,cy);ctx.moveTo(cx,cy-radius);ctx.lineTo(cx,cy+radius);ctx.stroke();
    let target=value?(input.pivot?canStick(value,input.origin,input.gain||30,{x:$('flip-top').checked,y:$('flip-y').checked}):joystickValue(value,input.origin)):null;
+   if(input.gameSlide?.flight)target=gameSlideVector(fresh?flightTopPoint(item,cameras.top.canvas.width,cameras.top.canvas.height):null,input.gameSlide.origin,input.gameSlide,now,cameras.top.acceptedSample);
+   else if(input.gameSlide)target=gameSlideVector(fresh?{x:item.motion.center_px[0]/cameras.top.canvas.width,y:1-item.motion.center_px[1]/cameras.top.canvas.height}:null,input.origin,input.gameSlide,now,cameras.top.acceptedSample);
    let sample=cameras.top.acceptedSample;
    input.poseMode=!!(input.pivot&&['can','bottle','cup'].includes(item?.object_label)&&!studioDemo);
    if(input.poseMode)target=stepStickPose(input,fresh?item.control_features:null,sample,{x:$('flip-top').checked,y:$('flip-y').checked});
@@ -68,7 +70,7 @@ function renderFlatInputs(){
      if(tilt!==null){sample=Math.max(sample,cameras.front.acceptedSample);const y=Math.abs(tilt)>Math.abs(target?.y||0)?tilt:(target?.y||0);target={x:target?.x||0,y};const len=Math.max(1,Math.hypot(target.x,target.y));target.x/=len;target.y/=len;target.direction=Math.hypot(target.x,target.y)>.1?Math.atan2(target.x,target.y)*180/Math.PI:null;}
     }
    }
-   input.continuity=input.continuity||{};input.joystick=stickContinuity(input.continuity,target,now,sample);input.controlActive=!!input.joystick;input.bridging=!!input.joystick&&!target;
+   input.continuity=input.continuity||{};input.joystick=input.gameSlide?target:stickContinuity(input.continuity,target,now,sample);input.controlActive=!!input.joystick;input.bridging=!!input.joystick&&!target;
    if(input.joystick){
     const px=cx+input.joystick.x*radius,py=cy-input.joystick.y*radius;
     ctx.strokeStyle='#f2dd83';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(px,py);ctx.stroke();ctx.fillStyle='#f2dd83';ctx.beginPath();ctx.arc(px,py,12,0,Math.PI*2);ctx.fill();
@@ -80,13 +82,14 @@ function renderFlatInputs(){
   card.append(title,output,gauge,rotation);
   const recenter=document.createElement('button');recenter.textContent='Center stick / zero rotation';recenter.disabled=!fresh;recenter.addEventListener('click',async()=>{if(value&&input.mode==='xy')input.origin=[value.x,value.y];if(input.poseMode)beginStickNeutral(input);input.sideId=null;input.continuity={};try{await api('/api/rotation/reset',{object_id:id},'top');input.yawFilter=null;input.yawStamp=null;}catch(err){error(err.message);}renderFlatInputs();});card.append(recenter);
   if(input.mode!=='xy')for(const end of [0,1]){const button=document.createElement('button');button.textContent=`Set ${end?'100':'0'}% here`;button.disabled=!fresh;button.addEventListener('click',()=>{const center=item.motion.center_px,size=[cameras.top.canvas.width,cameras.top.canvas.height],raw=flatValue(center,size,'xy');input.range=input.range||[0,1];input.range[end]=input.mode==='y'?raw.y:raw.x;input.filters={};input.filterStamp=null;renderFlatInputs();});card.append(button);}
-  const remove=document.createElement('button');remove.textContent='Remove input';remove.addEventListener('click',()=>{flatInputs.delete(id);dismissedFlatInputs.add(id);card.remove();});card.append(remove);cards.push(card);
+  const remove=document.createElement('button');remove.textContent='Remove input';remove.addEventListener('click',async()=>{if(typeof removeDJSource==='function')await removeDJSource(id);flatInputs.delete(id);dismissedFlatInputs.add(id);card.remove();});card.append(remove);cards.push(card);
  }
  $('flat-tracks').replaceChildren(...cards);
 }
-$('flat-add').addEventListener('click',()=>{
+$('flat-add').addEventListener('click',async()=>{
  const id=$('flat-object').value,item=objects('top').find(o=>o.observation.object_id===id);if(!item)return;
  if($('flat-mode').value==='button'){void assignDetectedButton({id,name:`${item.object_label} #${item.number}`});return;}
+ if(typeof removeDJSource==='function')await removeDJSource(id);
  flatInputs.set(id,{mode:$('flat-mode').value,pivot:$('flat-mode').value==='xy',label:`${item.object_label} #${item.number}`,range:null});
  if($('flat-mode').value==='xy'&&typeof useOverheadJoystick==='function')void useOverheadJoystick();
  const pair=pairs.find(p=>p.top===id);if(pair)pairs.splice(pairs.indexOf(pair),1);

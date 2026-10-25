@@ -128,6 +128,7 @@ async function wideView(role){
  zero();
 }
 async function stop(){
+ if(typeof stopDJSession==='function')try{await stopDJSession();}catch(_){}
  if(typeof stopRealKeys==='function')void stopRealKeys('Cameras stopped');
  running=false;generation++;clearTimeout(timer);cancelAnimationFrame(previewRequest);
  for(const c of Object.values(cameras)){clearTimeout(c.timer);clearTimeout(c.exposureTimer);if(c.callback!==null)c.video.cancelVideoFrameCallback?.(c.callback);c.callback=null;c.stream?.getTracks().forEach(t=>t.stop());c.stream=null;c.video.srcObject=null;}
@@ -165,7 +166,7 @@ async function start(){
  if(!navigator.mediaDevices?.getUserMedia)throw new Error('Open localhost in Safari or Chrome.');
  let devices=await inventory();
  if(!devices.some(d=>d.label)){
- const temporary=await navigator.mediaDevices.getUserMedia({video:$('overhead-only').checked?{deviceId:{exact:$('camera-top').value}}:true,audio:false});temporary.getTracks().forEach(t=>t.stop());devices=await inventory();}
+ const temporary=await navigator.mediaDevices.getUserMedia({video:$('overhead-only').checked&&$('camera-top').value?{deviceId:{exact:$('camera-top').value}}:true,audio:false});temporary.getTracks().forEach(t=>t.stop());devices=await inventory();}
  const activeRoles=$('overhead-only').checked?['top']:roles,ids=activeRoles.map(r=>$(`camera-${r}`).value);
  if(ids.some(id=>!id)||(ids.length===2&&ids[0]===ids[1]))throw new Error('Choose different camera sources, or enable overhead-only joystick mode.');
  for(const role of activeRoles){
@@ -181,7 +182,7 @@ async function start(){
  await matchFrameRates();
  running=true;for(const role of activeRoles){const c=cameras[role];clearTimeout(c.exposureTimer);$(`exposure-status-${role}`).textContent='Exposure settling · keep hands out briefly';c.exposureTimer=setTimeout(()=>{if(g===generation&&running)void cameraExposure(role,true);},1800);}
  analysisWindow=performance.now();analysisCount=0;previewLast=0;previewWindow=performance.now();previewCount=0;previewLoop(g);lastCompleted=null;$('status').textContent='Fast tracking · move new objects briefly in both views';$('start').textContent='Reconnect cameras';activeRoles.forEach(role=>pump(role,g));
- }catch(err){await stop();error(err.message);}finally{opening=false;$('start').disabled=false;}
+ }catch(err){await stop();error(err.message||err.name||'Camera could not start.');}finally{opening=false;$('start').disabled=false;}
 }
 function objects(role){return cameras[role].result?.objects||[];}
 function find(role,id){return objects(role).find(o=>o.observation.object_id===id);}
@@ -325,7 +326,7 @@ function boxLead(c,id,now){
 }
 function overlay(role,now=null){const c=cameras[role],canvas=c.overlay;if(canvas.width!==c.canvas.width)canvas.width=c.canvas.width;if(canvas.height!==c.canvas.height)canvas.height=c.canvas.height;const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);
  const stale=now!==null&&c.acceptedSample&&now-c.acceptedSample>220;
- if(stale)return;
+ if(stale){if(role==='top'&&typeof drawGameZones==='function')drawGameZones(ctx,canvas);return;}
  for(const o of objects(role)){const obs=o.observation;if(!obs.bbox_xyxy||obs.tracking_state!=='tracked')continue;const pair=pairs.find(p=>p[role]===obs.object_id),color=pair?colors[(pair.number-1)%colors.length]:'#aab8aa';ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2;ctx.setLineDash(obs.tracking_state==='predicted'?[6,5]:[]);const [lx,ly]=boxLead(c,obs.object_id,now),[x,y,x2,y2]=displayBox(obs.bbox_xyxy).map((v,i)=>v+(i%2?ly:lx));ctx.strokeRect(x,y,x2-x,y2-y);ctx.font='15px sans-serif';ctx.fillText(typeof flatInputs!=='undefined'&&flatInputs.has(obs.object_id)?`2D input #${o.number}`:pair?`Object ${pair.number}`:`#${o.number} ${o.object_label} · unpaired`,x,Math.max(16,y-5));}
  // Draw measured side silhouette centerlines and estimated overhead joystick pivots.
  for(const o of objects(role))if(o.observation.tracking_state==='tracked'&&o.skeleton){
@@ -336,6 +337,8 @@ function overlay(role,now=null){const c=cameras[role],canvas=c.overlay;if(canvas
  }
  if(role==='top'&&typeof actionRegion!=='undefined'&&actionRegion){const [x,y,x2,y2]=actionRegion;ctx.strokeStyle='#f2dd83';ctx.lineWidth=3;ctx.strokeRect(x,y,x2-x,y2-y);ctx.fillStyle='#f2dd83';ctx.fillText('Cover button area',x,Math.max(16,y-5));}
  if(role==='top'&&canvas.dataset.region){const [x,y,x2,y2]=JSON.parse(canvas.dataset.region);ctx.strokeStyle='#c5ef9b';ctx.lineWidth=3;ctx.strokeRect(x*canvas.width,y*canvas.height,(x2-x)*canvas.width,(y2-y)*canvas.height);}
+ if(role==='top'&&typeof drawGameZones==='function')drawGameZones(ctx,canvas);
+ if(role==='top'&&typeof drawGeneralControlRegions==='function')drawGeneralControlRegions(ctx);
  $(`state-${role}`).textContent=`${objects(role).filter(o=>o.observation.tracking_state==='tracked').length} objects tracked`;
 }
 function animateOverlays(){if(running){const now=performance.timeOrigin+performance.now();for(const role of roles)if(cameras[role].result)overlay(role,now);}requestAnimationFrame(animateOverlays);}
@@ -410,7 +413,7 @@ $('pair').addEventListener('click',()=>{const a=find('front',$('pair-front').val
 $('flip-y').addEventListener('change',zero);
 $('refresh-cameras').addEventListener('click',()=>inventory().catch(err=>error(err.message)));
 $('start').addEventListener('click',start);$('stop').addEventListener('click',stop);$('zero').addEventListener('click',zero);
-$('reset').addEventListener('click',async()=>{const resume=running;running=false;for(const c of Object.values(cameras))clearTimeout(c.timer);await Promise.all(Object.values(cameras).map(async c=>{if(c.inFlight)try{await c.inFlight;}catch(_){}}));for(const role of roles){await api('/api/clear',{},role);cameras[role].result=null;}pairs.length=0;candidates.clear();pairNumber=0;if(typeof flatInputs!=='undefined'){flatInputs.clear();if(typeof dismissedFlatInputs!=='undefined')dismissedFlatInputs.clear();$('flat-tracks').replaceChildren();}$('tracks').replaceChildren();draw();if(resume){running=true;previewLoop(generation);roles.filter(role=>cameras[role].stream).forEach(role=>pump(role,generation));}});
+$('reset').addEventListener('click',async()=>{if(typeof stopDJSession==='function')try{await stopDJSession();}catch(_){}const resume=running;running=false;for(const c of Object.values(cameras))clearTimeout(c.timer);await Promise.all(Object.values(cameras).map(async c=>{if(c.inFlight)try{await c.inFlight;}catch(_){}}));for(const role of roles){await api('/api/clear',{},role);cameras[role].result=null;}pairs.length=0;candidates.clear();pairNumber=0;if(typeof flatInputs!=='undefined'){flatInputs.clear();if(typeof dismissedFlatInputs!=='undefined')dismissedFlatInputs.clear();$('flat-tracks').replaceChildren();}$('tracks').replaceChildren();draw();if(resume){running=true;previewLoop(generation);roles.filter(role=>cameras[role].stream).forEach(role=>pump(role,generation));}});
 new ResizeObserver(draw).observe(map.parentElement);
 window.addEventListener('pagehide',()=>{running=false;generation++;clearTimeout(timer);cancelAnimationFrame(previewRequest);for(const c of Object.values(cameras)){clearTimeout(c.timer);c.stream?.getTracks().forEach(t=>t.stop());}});
 if(navigator.mediaDevices){inventory().catch(()=>{});navigator.mediaDevices.addEventListener('devicechange',()=>inventory().catch(()=>{}));}

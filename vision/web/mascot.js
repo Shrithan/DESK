@@ -88,33 +88,27 @@ async function routeStudioCommand(transcript){
  return null;
 }
 function bearCaption(message){$('bear-response').textContent=message;}
-let bearLevel=0,bearWidth=1,bearAudioSource=null;
+let bearLevel=0,bearAudioSource=null;
 function connectBearAudio(source){
  const analyser=voiceAudio.context.createAnalyser();analyser.fftSize=256;
  source.connect(analyser);analyser.connect(voiceAudio.context.destination);
  bearAudioSource=source;document.body.classList.add('bear-speaking');
- const samples=new Float32Array(analyser.fftSize),spectrum=new Uint8Array(analyser.frequencyBinCount),avatar=$('bear-avatar');
+ const samples=new Float32Array(analyser.fftSize);
  const channel=source.buffer.getChannelData(0),windowSize=Math.max(1,Math.round(source.buffer.sampleRate*.012)),envelope=[];
  for(let start=0;start<channel.length;start+=windowSize){let energy=0;const end=Math.min(channel.length,start+windowSize);for(let i=start;i<end;i++)energy+=channel[i]*channel[i];envelope.push(Math.sqrt(energy/(end-start)));}
  const startedAt=voiceAudio.context.currentTime;
  const animate=()=>{
   if(bearAudioSource!==source||voiceAudio.source!==source){
-   if(bearAudioSource===source){bearAudioSource=null;document.body.classList.remove('bear-speaking');avatar.style.removeProperty('--mouth-open');avatar.style.removeProperty('--mouth-width');avatar.style.removeProperty('--mouth-opacity');}
+   if(bearAudioSource===source){bearAudioSource=null;document.body.classList.remove('bear-speaking');window.setBearMouth?.(0);}
    return;
   }
-  analyser.getFloatTimeDomainData(samples);analyser.getByteFrequencyData(spectrum);
+  analyser.getFloatTimeDomainData(samples);
   let sum=0;for(const sample of samples)sum+=sample*sample;
   const liveRms=Math.sqrt(sum/samples.length),position=Math.max(0,(voiceAudio.context.currentTime-startedAt)*source.buffer.sampleRate/windowSize),index=Math.floor(position),mix=position-index;
   const rms=Math.max(liveRms,(envelope[index]||0)*(1-mix)+(envelope[index+1]||0)*mix);
   const target=rms<.012?0:Math.min(1,Math.pow((rms-.012)*9,.75));
   bearLevel+=(target-bearLevel)*(target>bearLevel?.42:.24);
-  let low=0,high=0;for(let i=2;i<16;i++)low+=spectrum[i];for(let i=16;i<55;i++)high+=spectrum[i];
-  const narrow=high/(high+low*2+1);
-  const width=1.04-Math.min(.32,narrow*.5);
-  bearWidth+=(width-bearWidth)*.19;
-  avatar.style.setProperty('--mouth-open',(.06+bearLevel*1.18).toFixed(3));
-  avatar.style.setProperty('--mouth-width',bearWidth.toFixed(3));
-  avatar.style.setProperty('--mouth-opacity',Math.min(1,bearLevel*5).toFixed(3));
+  window.setBearMouth?.(bearLevel);
   requestAnimationFrame(animate);
  };
  requestAnimationFrame(animate);
@@ -149,15 +143,6 @@ $('bear-talk').addEventListener('click',async()=>{
 });
 $('bear-stop').addEventListener('click',()=>{$('command-hands-free').checked=false;$('command-hands-free').dispatchEvent(new Event('change'));});
 $('bear-avatar').addEventListener('click',()=>{if($('command-hands-free').checked)$('bear-stop').click();else $('bear-talk').click();});
-function moveBearGaze(event){
- const avatar=$('bear-avatar'),x=Math.max(-1,Math.min(1,(event.clientX/window.innerWidth-.5)*2)),y=Math.max(-1,Math.min(1,(event.clientY/window.innerHeight-.5)*2));
- avatar.style.setProperty('--bear-rx',`${(-y*7).toFixed(2)}deg`);
- avatar.style.setProperty('--bear-ry',`${(x*10).toFixed(2)}deg`);
- avatar.style.setProperty('--eye-x',`${(x*avatar.clientWidth*.018).toFixed(1)}px`);
- avatar.style.setProperty('--eye-y',`${(y*avatar.clientWidth*.018).toFixed(1)}px`);
-}
-window.addEventListener('pointermove',moveBearGaze,{passive:true});
-window.addEventListener('blur',()=>{const avatar=$('bear-avatar');for(const name of ['--bear-rx','--bear-ry','--eye-x','--eye-y'])avatar.style.removeProperty(name);});
 $('bear-form').addEventListener('submit',async event=>{
  event.preventDefault();const input=$('bear-text'),message=input.value.trim();if(!message)return;
  input.value='';

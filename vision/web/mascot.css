@@ -1,22 +1,16 @@
-:root{--bear-cream:#fff9ef;--bear-ink:#2b2927}
-body{background:var(--bear-cream);overflow-x:hidden}body>header{display:none}
+:root{--bear-sky:#72d5e7;--bear-ink:#203a41}
+body{background:var(--bear-sky);overflow-x:hidden}body>header{display:none}
 main{max-width:none;margin:0;padding:0;color:var(--bear-ink)}
-.bear-stage{height:100svh;min-height:480px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(8px,2vh,22px);padding:clamp(12px,2vh,24px) 20px;background:radial-gradient(ellipse at 50% 43%,#fffdf8 0,#fff9ef 65%,#f9efdf 100%);perspective:1100px}
-.bear-avatar{position:relative;display:block;flex:0 1 auto;width:min(72vh,75vw,760px);aspect-ratio:1214/1296;max-height:calc(100svh - 120px);min-height:0;padding:0;border:0;border-radius:0;background:transparent;cursor:pointer;overflow:visible;appearance:none;transform-style:preserve-3d}
-.bear-avatar:hover:not(:disabled),.bear-avatar:focus-visible{background:transparent;border:0;outline:0}
-.bear-avatar:focus-visible .bear-head{filter:drop-shadow(0 0 12px #f0bd56) drop-shadow(0 30px 26px #683b2059)}
-.bear-head{position:relative;display:block;width:100%;height:100%;transform-style:preserve-3d;animation:bear-idle 3.8s ease-in-out infinite;filter:drop-shadow(0 32px 18px #3b2c2850);will-change:transform}
-.bear-head img{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;backface-visibility:hidden}
-.bear-eye{position:absolute;top:42.9%;width:5.3%;height:6.4%;background:linear-gradient(135deg,#24334e,#0a152c);clip-path:polygon(0 12%,15% 0,86% 0,100% 13%,100% 87%,84% 100%,14% 100%,0 86%);transform:translate(calc(-50% + var(--eye-x,0px)),calc(-50% + var(--eye-y,0px))) translateZ(18px);box-shadow:inset -4px -4px 0 #020a1a;pointer-events:none;will-change:transform}
-.bear-eye::after{content:"";position:absolute;left:19%;top:15%;width:26%;height:23%;background:#fffaf0;clip-path:polygon(0 0,100% 0,100% 100%,0 100%)}
-.bear-eye-left{left:37.2%}.bear-eye-right{left:63.8%}
-@keyframes bear-idle{0%,100%{transform:rotateX(var(--bear-rx,0deg)) rotateY(var(--bear-ry,0deg)) rotateZ(-1deg) translateY(0)}25%{transform:rotateX(var(--bear-rx,0deg)) rotateY(var(--bear-ry,0deg)) rotateZ(0deg) translateY(-8px)}50%{transform:rotateX(var(--bear-rx,0deg)) rotateY(var(--bear-ry,0deg)) rotateZ(1deg) translateY(0)}75%{transform:rotateX(var(--bear-rx,0deg)) rotateY(var(--bear-ry,0deg)) rotateZ(0deg) translateY(-8px)}}
-body.bear-listening .bear-head{filter:drop-shadow(0 0 22px #f4c975) drop-shadow(0 30px 26px #683b203f)}
-.bear-mouth{position:absolute;left:50%;top:65%;width:28%;height:8%;overflow:visible;opacity:0;shape-rendering:crispEdges;transform:translateX(-50%) translateZ(14px) scaleX(var(--mouth-width,1)) scaleY(var(--mouth-open,.05));transform-origin:50% 12%;filter:drop-shadow(0 4px 1px #3a1e1680);transition:opacity 90ms ease-out;pointer-events:none}
-.mouth-cavity{fill:#101a31;stroke:#47311c;stroke-width:6;stroke-linejoin:bevel}.mouth-teeth{fill:#fff4de}.mouth-tongue{fill:#b66858;opacity:.9}
-body.bear-speaking .bear-mouth{opacity:var(--mouth-opacity,0)}
-#bear-form{width:min(600px,90vw);margin:0;z-index:1}#bear-text{width:100%;height:58px;padding:0 22px;border:1px solid #ddcdb7;border-radius:30px;background:#fff;color:#302a24;box-shadow:0 8px 28px #4e382010;font:17px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;outline:none}#bear-text::placeholder{color:#94877c}#bear-text:focus{border-color:#bd8d39;box-shadow:0 0 0 3px #f2d48d80}
+.bear-stage{height:100svh;min-height:480px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(4px,1vh,12px);padding:16px 20px;background:var(--bear-sky)}
+.bear-avatar{position:relative;display:block;flex:0 1 auto;width:min(78vh,78vw,720px);aspect-ratio:1/1;max-height:calc(100svh - 110px);min-height:0;padding:0;border:0;background:transparent;cursor:pointer;appearance:none}
+.bear-avatar:hover:not(:disabled),.bear-avatar:focus-visible{background:transparent;border:0}
+.bear-avatar:focus-visible{outline:3px solid #1b5d76;outline-offset:4px}
+#bear-canvas{display:block;width:100%;height:100%;pointer-events:none}
+#bear-fallback{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none}
+#bear-fallback[hidden],#bear-canvas[hidden]{display:none}
+#bear-form{width:min(560px,90vw);margin:0;z-index:1}
+#bear-text{width:100%;height:58px;padding:0 22px;border:1px solid #b4d8dc;border-radius:17px;background:#faffff;color:#244047;box-shadow:0 10px 0 #3d9eae25,0 12px 28px #1c697022;font:17px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;outline:none}
+#bear-text::placeholder{color:#6e9aa0}#bear-text:focus{border-color:#2c8ba1;box-shadow:0 0 0 3px #ffffffa8,0 10px 0 #3d9eae25}
 .bear-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;border:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
 .workspace-setup{position:fixed;left:-10000px;top:0;width:1100px;height:800px;opacity:0;pointer-events:none;overflow:hidden;margin:0;padding:0}
-@media(max-width:600px){.bear-avatar{width:min(92vw,68vh);max-height:calc(100svh - 115px)}#bear-text{height:54px;font-size:16px}}
-@media(prefers-reduced-motion:reduce){.bear-head{animation:none}}
+@media(max-width:600px){.bear-avatar{width:min(92vw,69vh)}#bear-text{height:54px;font-size:16px}}

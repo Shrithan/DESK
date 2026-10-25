@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vision-live",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["-m", "vision.live", "--port", "8765", "--device", "mps", "--model-size", "x", "--temporal", "flow"],
+      "port": 8765
+    }
+  ]
+}

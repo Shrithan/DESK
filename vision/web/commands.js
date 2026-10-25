@@ -43,8 +43,9 @@ async function armRealKeys(id=$('keyboard-target').value){
   if(version!==keyboardVersion){void stopRealKeys('Arming cancelled');return;}
   keyboardToken=null;actionToken=state.token;actionSequence=0;keyboardObject=id;keyStatus('ARMED · '+(morphMapping.output||'keyboard'));$('action-status').textContent=state.reason;return;
  }
- const result=await api('/api/keys/arm',{object_id:id,mode:$('keyboard-mode').value,allowed_keys:morphMapping?.object_id===id?Object.values(morphMapping.bindings):undefined});
+ const result=await api('/api/keys/arm',{object_id:id,mode:$('keyboard-mode').value,retain_mapping:input.gameModule==='flight-stick',allowed_keys:morphMapping?.object_id===id?Object.values(morphMapping.bindings):undefined});
  if(version!==keyboardVersion){void stopRealKeys('Arming cancelled');return;}
+ if(!result.token||!result.armed)throw Error(result.reason||'Keyboard output did not arm.');
  keyboardToken=result.token;keyboardObject=id;keySequence=0;keyStatus('ARMED · '+($('keyboard-mode').value==='typing'?'repeating letters':'holding mapped keys')+' · switch to your target app');
 }
 async function sendDesktopAction(){
@@ -78,7 +79,10 @@ async function sendRealKeys(){
  const targetReady=!document.hasFocus()||document.activeElement?.id==='keyboard-test';
  const keys=targetReady&&fresh&&calibrated&&(input.controlActive||active&&input.mode!=='xy')?(active?morphKeys(morphMapping,input):Object.keys(input.keys||{}).filter(k=>input.keys[k]).map(k=>k.toLowerCase())):[];
  keySending=true;
- try{const state=await api('/api/keys/update',{token,keys,sequence:keySequence++});if(version===keyboardVersion)keyStatus('ARMED · '+(state.held.join(' + ').toUpperCase()||'neutral')+' · sends to the focused app');}
+ try{const state=await api('/api/keys/update',{token,keys,sequence:keySequence++});if(version===keyboardVersion){
+  if(!state.armed){keyboardToken=null;keyStatus(state.reason+' · output paused');return;}
+  keyStatus(!targetReady?'PAUSED · focus the simulator window to send keys':!fresh?'PAUSED · waiting for a fresh camera observation':'SENDING · '+(state.held.join(' + ').toUpperCase()||'neutral')+' · to the focused app');
+ }}
  catch(err){if(version===keyboardVersion)void stopRealKeys(err.message);}
  finally{keySending=false;}
 }
@@ -121,19 +125,32 @@ async function activateMorph(mapping,message,autoArm=true){
  if(autoArm)try{await armRealKeys(id);}catch(err){keyStatus(err.message+' · mapping ready, output off');}
 }
 async function applyVoiceCommand(result){
+ agentApplication=executeVoiceCommand(result);
+ try{return await agentApplication;}finally{agentApplication=null;}
+}
+async function executeVoiceCommand(result){
  $('command-transcript').textContent='Heard: “'+result.transcript+'”';
- if(result.intent?.action==='stop_keys'){await stopRealKeys('Stopped by voice');$('command-status').textContent='Keyboard output stopped.';void commandReply('keys_stopped');return;}
+ if(result.intent?.action==='stop_keys'){setupListening=false;await stopModuleOutputs('Stopped by voice');$('command-status').textContent='Keyboard output stopped.';void commandReply('keys_stopped');return;}
  if(!running||studioDemo)throw new Error('Start the real camera first, then show your item.');
- const version=commandVersion,now=performance.timeOrigin+performance.now();
+ const version=commandVersion;
+ await prepareModuleAgent();
+ if(version!==commandVersion||moduleResetting)return;
+ const now=performance.timeOrigin+performance.now();
  $('command-status').textContent='ASI:One is choosing a mapping from your live inputs…';
- const response=await fetch('/api/morph/plan',{method:'POST',headers:{'Content-Type':'application/json'},signal:commandRequest?.signal,body:JSON.stringify({transcript:result.transcript,selected:$('command-target').value||null,moved:[...commandMotion].filter(([id,m])=>now-m.moved<1500).map(([id])=>id),current:morphMapping})});
+ const response=await fetch('/api/morph/plan',{method:'POST',headers:{'Content-Type':'application/json'},signal:commandRequest?.signal,body:JSON.stringify({transcript:result.transcript,selected:$('command-target').value||null,moved:[...commandMotion].filter(([id,m])=>now-m.moved<1500).map(([id])=>id),current:moduleContext(),conversation:setupConversation})});
  const answer=await response.json();if(version!==commandVersion)return;
  if(!response.ok)throw new Error(answer.error||'Mapping agent failed.');
  const plan=answer.plan;
- if(plan.status==='stop'){await stopRealKeys('Stopped by agent');$('command-status').textContent=plan.message;void speakMappingReply(answer.reply_id);return;}
- if(plan.status!=='ready'){$('command-status').textContent=plan.message;void speakMappingReply(answer.reply_id);return;}
- await activateMorph(plan.mapping,plan.message);
- void speakMappingReply(answer.reply_id);
+ rememberSetup(result.transcript,plan.message);
+ if(plan.status==='stop'){setupListening=false;await stopModuleOutputs('Stopped by agent');$('command-status').textContent=plan.message;await speakMappingReply(answer.reply_id);return;}
+ if(plan.status!=='ready'){setupListening=setupListening&&needsSetupReply(plan);$('command-status').textContent=plan.message;await speakMappingReply(answer.reply_id);return;}
+ await activateModulePlan(plan.mapping,plan.message);
+ // Follow-up listening is for clarification/calibration, not background commands
+ // after an assignment is finished (including audio from an opened app).
+ setupListening=setupListening&&needsSetupReply(plan);
+ // Speak the actual next setup step, especially during travel calibration.
+ if($('command-status').textContent!==plan.message)setupConversation.at(-1).message=$('command-status').textContent.slice(0,1000);
+ await speakMappingReply(answer.reply_id);
 }
 async function finishCommand(send=true){
  const rec=commandRecorder;if(!rec)return;commandRecorder=null;
@@ -141,15 +158,18 @@ async function finishCommand(send=true){
  $('command-talk').textContent='Talk to map';$('command-talk').disabled=send;$('command-cancel').disabled=!send;
  if(!send){$('command-status').textContent='Voice cancelled · microphone off';return;}
  if(!rec.voiced){$('command-status').textContent='No speech detected. Click Talk and speak clearly.';$('command-talk').disabled=false;$('command-cancel').disabled=true;return;}
+ let applied=false;
  const version=commandVersion,controller=new AbortController();commandRequest=controller;
  const timer=setTimeout(()=>controller.abort(),55000);$('command-status').textContent='Cartesia is listening to your command… microphone off';
- try{const response=await fetch('/api/voice/transcribe',{method:'POST',headers:{'Content-Type':'audio/wav'},body:encodeCommandWav(rec.chunks,rec.context.sampleRate),signal:controller.signal});const result=await response.json();if(!response.ok)throw new Error(result.error||'Voice transcription failed.');if(version===commandVersion)await applyVoiceCommand(result);}
+ try{const response=await fetch('/api/voice/transcribe',{method:'POST',headers:{'Content-Type':'audio/wav'},body:encodeCommandWav(rec.chunks,rec.context.sampleRate),signal:controller.signal});const result=await response.json();if(!response.ok)throw new Error(result.error||'Voice transcription failed.');if(version===commandVersion){await applyVoiceCommand(result);applied=true;}}
  catch(err){if(version===commandVersion)$('command-status').textContent=err.name==='AbortError'?'Voice request cancelled or timed out.':err.message;}
- finally{clearTimeout(timer);if(version===commandVersion){commandRequest=null;$('command-talk').disabled=false;$('command-cancel').disabled=true;}}
+ finally{clearTimeout(timer);if(version===commandVersion){commandRequest=null;$('command-talk').disabled=false;$('command-cancel').disabled=true;
+ if(applied&&setupListening&&$('module-listen').checked&&!moduleResetting)setTimeout(()=>{if(setupListening&&!moduleResetting)void startCommand();},300);}}
 }
 async function startCommand(){
+ if(typeof moduleResetting!=='undefined'&&moduleResetting)return;
  if(commandRecorder){await finishCommand(true);return;}
- const version=++commandVersion;let stream=null,context=null;$('command-talk').disabled=true;$('command-cancel').disabled=false;cancelVoice();voiceAudio.micBusy=true;await stopRealKeys('Listening for mapping');
+ const version=++commandVersion;let stream=null,context=null;$('command-talk').disabled=true;$('command-cancel').disabled=false;cancelVoice();voiceAudio.micBusy=true;
  try{
   unlockVoice();if(!await refreshVoiceStatus())throw new Error('Configure your Cartesia key first.');
   stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,channelCount:1},video:false});
@@ -161,17 +181,17 @@ async function startCommand(){
   node.port.onmessage=e=>{if(commandRecorder!==rec)return;const chunk=e.data;rec.chunks.push(chunk);let power=0;for(const v of chunk)power+=v*v;const loud=Math.sqrt(power/chunk.length)>.015;
    if(loud){rec.speechMs+=chunk.length/context.sampleRate*1000;rec.lastSpeech=performance.now();}if(rec.speechMs>200)rec.voiced=true;
    if(rec.voiced&&performance.now()-rec.lastSpeech>900&&performance.now()-rec.start>1000)void finishCommand(true);};
-  rec.timer=setTimeout(()=>void finishCommand(true),10000);$('command-talk').disabled=false;$('command-talk').textContent='Finish command';$('command-cancel').disabled=false;$('command-status').textContent='Microphone on · say “Map this can to a joystick,” then pause or click Finish.';
+  rec.timer=setTimeout(()=>void finishCommand(true),10000);$('command-talk').disabled=false;$('command-talk').textContent='Finish command';$('command-cancel').disabled=false;$('command-status').textContent='Microphone on · say what you want to control, then pause or click Finish.';
  }catch(err){stream?.getTracks().forEach(t=>t.stop());if(context&&context.state!=='closed')await context.close();voiceAudio.micBusy=false;if(version===commandVersion){$('command-talk').disabled=false;$('command-cancel').disabled=true;$('command-status').textContent=err.message||'Microphone could not start.';}}
 }
-$('command-talk').addEventListener('click',()=>void startCommand());
-$('command-cancel').addEventListener('click',()=>{commandVersion++;commandRequest?.abort();voiceAudio.micBusy=false;void finishCommand(false);$('command-talk').disabled=false;$('command-text-send').disabled=false;$('command-cancel').disabled=true;$('command-status').textContent='Voice cancelled · no command applied';});
+$('command-talk').addEventListener('click',()=>{setupListening=true;$('voice-enabled').checked=true;void startCommand();});
+$('command-cancel').addEventListener('click',()=>{setupListening=false;cancelVoice();commandVersion++;commandRequest?.abort();voiceAudio.micBusy=false;void finishCommand(false);$('command-talk').disabled=false;$('command-text-send').disabled=false;$('command-cancel').disabled=true;$('command-status').textContent='Voice cancelled · no command applied';});
 $('keyboard-arm').addEventListener('click',()=>{void armRealKeys().catch(err=>keyStatus(err.message));});
-$('keyboard-stop').addEventListener('click',()=>{commandVersion++;commandRequest?.abort();$('command-text-send').disabled=false;void finishCommand(false);void stopRealKeys('Emergency stop');});
+$('keyboard-stop').addEventListener('click',()=>{setupListening=false;cancelVoice();commandVersion++;commandRequest?.abort();$('command-text-send').disabled=false;void finishCommand(false);void stopRealKeys('Emergency stop');});
 $('keyboard-mode').addEventListener('change',()=>void stopRealKeys('Output mode changed'));
 $('keyboard-target').addEventListener('change',()=>void stopRealKeys('Joystick target changed'));
-window.addEventListener('keydown',e=>{if(e.key==='Escape'){void stopRealKeys('Escape');if(commandRecorder){commandVersion++;void finishCommand(false);}}});
-window.addEventListener('pagehide',()=>{commandVersion++;commandRequest?.abort();void finishCommand(false);void stopRealKeys('Dashboard closed');});
+window.addEventListener('keydown',e=>{if(e.key==='Escape'){setupListening=false;void stopRealKeys('Escape');if(commandRecorder){commandVersion++;void finishCommand(false);}}});
+window.addEventListener('pagehide',()=>{setupListening=false;commandVersion++;commandRequest?.abort();void finishCommand(false);void stopRealKeys('Dashboard closed');});
 void fetch('/api/keys/status').then(r=>r.json()).then(s=>{if(!s.accessibility)keyStatus('macOS Accessibility permission is needed · real keys disarmed');}).catch(()=>{});
 
 $('keyboard-permission').addEventListener('click',async()=>{try{await stopRealKeys('Permission setup');const state=await api('/api/keys/request-permission',{});keyStatus(state.accessibility?'Permission granted · click Arm real WASD':'macOS permission requested · enable the named app in Accessibility, then click Arm real WASD');}catch(err){keyStatus(err.message);}});
@@ -187,10 +207,10 @@ void fetch('/api/morph/status').then(r=>r.json()).then(s=>{
 renderMorph();
 
 $('command-text-send').addEventListener('click',async()=>{
- const text=$('command-text').value.trim();if(!text)return;
+ const text=$('command-text').value.trim();if(!text||agentApplication||commandRecorder||moduleResetting)return;
  const version=++commandVersion;commandRequest?.abort();commandRequest=new AbortController();
  $('command-text-send').disabled=true;
- try{await stopRealKeys('Planning mapping');await applyVoiceCommand({transcript:text,intent:{}});}
+ try{await applyVoiceCommand({transcript:text,intent:{}});}
  catch(err){if(version===commandVersion)$('command-status').textContent=err.message;}
  finally{if(version===commandVersion){commandRequest=null;$('command-text-send').disabled=false;}}
 });

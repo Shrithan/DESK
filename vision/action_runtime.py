@@ -131,7 +131,15 @@ class ActionRuntime:
 
     def tick(self):
         with self.lock:
-            if self.token and self.clock()-self.last>.35:self.stop('Input stalled · output disarmed')
+            if self.token and self.clock()-self.last>.35:
+                if self.mapping['controller']=='cover_button' and self.target['kind']=='trigger':
+                    # Opening an app can throttle the dashboard's timers. Retain the
+                    # explicit assignment, but never carry a pending cover across a gap.
+                    self.enabled=False;self.last_frame=None
+                    self.cover.phase='missing';self.cover.since=None
+                    self.details=dict(self.details,phase='missing',fire=False,value=0)
+                    self.reason='Input stalled · button paused; uncover to resume'
+                else:self.stop('Input stalled · output disarmed')
 
     def _watch(self):
         while not self.stopping.wait(.04):self.tick()

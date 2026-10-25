@@ -864,6 +864,7 @@ class Handler(BaseHTTPRequestHandler):
                   '/dj.js':('dj.js','text/javascript; charset=utf-8'),
                   '/game-controls.js':('game-controls.js','text/javascript; charset=utf-8'),
                   '/controls.js':('controls.js','text/javascript; charset=utf-8'),
+                  '/module-agent.js':('module-agent.js','text/javascript; charset=utf-8'),
                   '/flat-input.js':('flat-input.js','text/javascript; charset=utf-8'),
                   '/prediction.js':('prediction.js','text/javascript; charset=utf-8'),
                   '/fusion.js':('fusion.js','text/javascript; charset=utf-8'),
@@ -921,6 +922,24 @@ class Handler(BaseHTTPRequestHandler):
                 try:self.send(200,self.server.exposure.configure(payload.get('label'),payload.get('locked')))
                 except (RuntimeError,OSError) as exc:self.send(503,dict(error=str(exc)))
                 return
+            if path == '/api/module/reset':
+                # Stop outputs before clearing sources; session.reset invalidates pending detection work.
+                self.server.keyboard.disarm('Module reset')
+                self.server.actions.stop('Module reset')
+                self.server.control_actions.stop()
+                self.server.dj.arm(False)
+                for target in list(self.server.dj.status()['mappings']):self.server.dj.remove(target)
+                for oid in self.server.object_buttons.assigned_ids():self.server.object_buttons.remove(oid)
+                for role, session in self.server.sessions.items():
+                    with session.lock:
+                        session.reset()
+                        session.workspace_multi=True
+                        session.motion_required=True
+                        session.overhead=role=='top'
+                self.server.mapper.reset_anchor()
+                with self.server.reply_lock:self.server.agent_replies.clear()
+                self.send(200,dict(status='reset'))
+                return
             if path == '/api/morph/plan':
                 if self.headers.get_content_type()!='application/json' or length>16384:raise ValueError('Expected a small mapping request.')
                 payload=json.loads(body)
@@ -930,11 +949,16 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(moved,list) or len(moved)>100:raise ValueError('Invalid movement context.')
                 for item in objects:item['recently_moved']=item['object_id'] in moved
                 try:
-                    result=self.server.morph.plan(payload.get('transcript'),objects,payload.get('selected'),payload.get('current'))
+                    result=self.server.morph.plan(payload.get('transcript'),objects,payload.get('selected'),payload.get('current'),payload.get('conversation'))
                     reply_id=secrets.token_urlsafe(18)
                     with self.server.reply_lock:
                         if len(self.server.agent_replies)>=8:self.server.agent_replies.pop(next(iter(self.server.agent_replies)))
-                        self.server.agent_replies[reply_id]=result['plan']['message']
+                        plan=result['plan'];mapping=plan.get('mapping') or {}
+                        dj_reply={'map':'Move this object to its zero percent end and say save minimum.',
+                                  'calibrate_low':'Minimum saved. Move to its one hundred percent end and say save maximum.',
+                                  'calibrate_high':'Travel calibrated. Say enable DJ controls.',
+                                  'enable':'Move through the current Mixxx fader value to pick up control.'}
+                        self.server.agent_replies[reply_id]=dj_reply.get(mapping.get('setup_action','map'),plan['message']) if plan['status']=='ready' and mapping.get('output','').startswith('mixxx.') else plan['message']
                     self.send(200,dict(result,reply_id=reply_id))
                 except VoiceError as exc:self.send(exc.status,dict(error=str(exc)))
                 return
@@ -984,7 +1008,9 @@ class Handler(BaseHTTPRequestHandler):
                     validate_plan(dict(status='ready',message='Activate control',mapping=mapping),self.server.mapping_objects(),self.server.morph.catalog_provider())
                     result=self.server.control_actions.arm(mapping)
                     self.server.sessions['top'].objects[mapping['object_id']]['persistent_identity']=True
-                elif path=='/api/controls/update':result=self.server.control_actions.update(payload.get('token'),payload.get('sequence'),payload.get('enabled'))
+                elif path=='/api/controls/update':
+                    try:result=self.server.control_actions.update(payload.get('token'),payload.get('sequence'),payload.get('enabled'))
+                    except PermissionError as exc:self.send(403,dict(error=str(exc)));return
                 elif path=='/api/controls/stop':result=self.server.control_actions.stop(payload.get('token'))
                 else:raise ValueError('Unknown controls request.')
                 self.send(200,result);return
@@ -1022,7 +1048,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     if path=='/api/keys/arm':
                         self.server.actions.stop('Keyboard controller armed')
-                        result=self.server.keyboard.arm(payload.get('object_id'),payload.get('mode','game'),payload.get('allowed_keys'))
+                        result=self.server.keyboard.arm(payload.get('object_id'),payload.get('mode','game'),payload.get('allowed_keys'),payload.get('retain_mapping',False))
                     elif path=='/api/keys/update':result=self.server.keyboard.update(payload.get('token'),payload.get('keys'),payload.get('sequence'))
                     elif path=='/api/keys/test':result=self.server.keyboard.test_taps()
                     elif path=='/api/keys/request-permission':result=dict(accessibility=request_accessibility_permission())

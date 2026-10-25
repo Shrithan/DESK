@@ -1,0 +1,42 @@
+/* Cal is the visual voice surface; the original studio remains below. */
+body.bear-interface{background:#111c27;color:#f3f5f6}
+.bear-interface>header{display:none}
+.bear-interface main{max-width:1500px;padding:0 24px 32px;margin:auto}
+.bear-stage{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;min-height:calc(100svh - 24px);padding:24px 16px 28px;isolation:isolate}
+.bear-stage:before{content:'';position:absolute;inset:0 -24px;background:radial-gradient(ellipse at 50% 43%,#30485b 0%,#182936 38%,#111c27 73%);z-index:-1;pointer-events:none}
+.bear-topline{align-self:stretch;display:flex;justify-content:space-between;align-items:center;font-size:10px;letter-spacing:2px;color:#aebecb;gap:12px}
+.bear-live{border:1px solid #3c4d5e;border-radius:30px;padding:7px 10px;letter-spacing:1px;font-size:9px;white-space:nowrap}
+.bear-live.is-live{color:#9de2c3;border-color:#427f6a}
+.bear-introduction{padding-top:28px}
+.bear-eyebrow{font-size:10px;letter-spacing:3px;color:#e9c477;margin:0 0 8px}
+.bear-introduction h1{font-size:clamp(27px,4vw,44px);letter-spacing:-1.5px;margin:0 0 10px;font-weight:500}
+.bear-introduction>p:last-child{font-size:13px;color:#aebecb;margin:0}
+.bear-avatar{position:relative;display:block;width:min(46vh,76vw,480px);aspect-ratio:1;border:0;background:none;padding:0;cursor:pointer;isolation:isolate;margin:12px 0 -5px;flex-shrink:0;box-shadow:none}
+.bear-avatar:hover:not(:disabled),.bear-avatar:focus-visible{background:none;border:0;transform:none}
+.bear-avatar:focus-visible{outline:2px solid #efc56b;outline-offset:8px;border-radius:24px}
+.bear-avatar canvas,.bear-avatar img{position:relative;display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;filter:drop-shadow(0 18px 22px #050d1860)}
+.bear-halo{position:absolute;inset:9%;border-radius:50%;background:#4e9fa31c;box-shadow:0 0 70px 18px #6c9dbe13;transition:background .4s,box-shadow .4s;z-index:-1}
+.va-listening .bear-halo{background:#b5f7df20;box-shadow:0 0 70px 24px #83e0c529}
+.va-thinking .bear-halo{background:#e9c47725;box-shadow:0 0 70px 24px #e9c47725;animation:bear-think 1.6s ease-in-out infinite}
+.va-speaking .bear-halo{background:#8bb8ff25;box-shadow:0 0 70px 24px #8bb8ff25}
+.bear-message{min-height:48px;margin:0 0 14px}
+.bear-state{font-size:10px;letter-spacing:2px;color:#e9c477}
+.bear-message p{margin:7px 0 0;font-size:12px;color:#b9c9d3}
+.bear-dock{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.bear-dock button{font-size:11px;background:#223441;border-color:#405363;color:#e9f0f3;border-radius:24px;padding:9px 15px;min-height:36px}
+.bear-dock .bear-emergency{color:#eab4a8;border-color:#76564f;background:#372b2b}
+.bear-text-form{display:flex;align-items:center;gap:8px;width:min(600px,100%);margin:18px 0 0;padding:6px;border:1px solid #455b6b;border-radius:16px;background:#1d303e}
+.bear-text-form input{flex:1;min-width:0;width:auto;margin:0;border:0!important;background:transparent!important;box-shadow:none!important;color:#f0f4f6;font-size:13px;padding:10px 12px}
+.bear-text-form input::placeholder{color:#9db2c3}
+.bear-text-form button{background:#e9c477;border-color:#e9c477;color:#1c2730;border-radius:11px;min-height:36px;font-size:12px;padding:8px 16px}
+.bear-conversation{width:min(640px,100%);font-size:13px;line-height:1.65;min-height:58px;margin:10px 0 0}
+#bear-transcript{color:#9fb4c6;margin:4px 0}
+#bear-reply{margin:4px 0;color:#e1e9ee}
+.bear-workspace{border:1px solid #364d5d;border-radius:16px;margin:14px 0;padding:16px 20px;background:#152531}
+.bear-workspace>summary{font-size:13px;color:#b9ccda}
+.bear-workspace>.intro{display:none}
+.bear-workspace .agent-setup{background:#152b32}
+.bear-interface .developer-tools{margin:18px 0}
+@keyframes bear-think{50%{opacity:.5}}
+@media(max-width:600px){.bear-interface main{padding:0 14px 24px}.bear-stage{padding:18px 0 24px}.bear-stage:before{inset:0 -14px}.bear-introduction{padding-top:24px}.bear-avatar{width:min(42vh,85vw,400px);margin-top:18px}.bear-topline{font-size:8px;letter-spacing:1.3px}.bear-dock{gap:6px}.bear-dock button{padding:8px 12px}.bear-conversation{font-size:12px}.bear-text-form{margin-top:14px}}
+@media(prefers-reduced-motion:reduce){.bear-halo{animation:none!important;transition:none}}

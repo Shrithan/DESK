@@ -1,4 +1,13 @@
-# DESK · Spatial DJ for Mixxx
+# DESK · Voice-controlled physical inputs
+
+Start the app below, open the overhead camera, and click **Talk to map**. Cartesia
+transcribes speech and ASI:One resolves the module and physical mapping: Flight,
+Subway, brightness/volume, buttons/sliders, or the Mixxx DJ deck. Existing module
+execution stays unchanged. **Reset module** clears mappings and observations so
+the same objects can control another interface. Manual setup is available under
+**Developer controls**. See [voice module setup](docs/morph-mapping.md#voice-module-setup).
+
+## Spatial DJ for Mixxx
 
 Current DJ workflow: overhead camera → multiple physical sliders → real Mixxx MIDI
 controls. Deck A/B volume, crossfader and EQ are available, with travel calibration,

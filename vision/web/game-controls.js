@@ -146,7 +146,7 @@ function gameModuleOptions(){
  if(gameModuleObject){const input=flatInputs.get(gameModuleObject),visible=items.some(o=>o.observation.object_id===gameModuleObject),armed=keyboardObject===gameModuleObject&&!!keyboardToken;
  gameModuleMessage(!visible?'Can track unavailable. Output is released; choose its current track and map again.':!armed?'Module configured · output disarmed. Click Map and arm game module to resume.':`Armed · ${input?.label} · ${$('keyboard-status').textContent}`);}
 }
-async function mapGameModule(){
+async function mapGameModule(fromAgent=false){
  if(!running||studioDemo)throw new Error('Start the real overhead camera first.');
  const profile=$('game-module').value,module=GAME_MODULES[profile],id=$('game-object').value;
  const threshold=Number($('game-threshold').value);if(!Number.isFinite(threshold)||threshold<3||threshold>80)throw new Error('Movement threshold must be 3–80 camera pixels.');
@@ -155,7 +155,7 @@ async function mapGameModule(){
  const item=objects('top').find(o=>o.observation.object_id===id&&o.observation.tracking_state==='tracked');
  const anchor=module.flight?captureFlightAnchor(item):module.slide?captureGameAnchor(item):null;
  if(module.slide&&!anchor)throw new Error('Show an object to capture its first position.');
- commandVersion++;
+ if(!fromAgent)commandVersion++;
  const plan=gameModulePlan(profile,id);
  if(module.flight)plan.mode=$('keyboard-mode').value;
  await activateMorph(plan,module.help,false);
@@ -164,6 +164,7 @@ async function mapGameModule(){
  renderFlatInputs();syncCommandTargets();$('keyboard-target').value=id;
  gameModuleObject=id;
  await armRealKeys(id);
+ await sendRealKeys();
  gameModuleOptions();
 }
 $('game-map').addEventListener('click',()=>void mapGameModule().catch(e=>gameModuleMessage(e.message)));

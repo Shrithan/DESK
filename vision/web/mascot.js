@@ -88,22 +88,33 @@ async function routeStudioCommand(transcript){
  return null;
 }
 function bearCaption(message){$('bear-response').textContent=message;}
-let bearLevel=0,bearAudioSource=null;
+let bearLevel=0,bearWidth=1,bearAudioSource=null;
 function connectBearAudio(source){
  const analyser=voiceAudio.context.createAnalyser();analyser.fftSize=256;
  source.connect(analyser);analyser.connect(voiceAudio.context.destination);
  bearAudioSource=source;document.body.classList.add('bear-speaking');
- const samples=new Uint8Array(analyser.fftSize);
+ const samples=new Float32Array(analyser.fftSize),spectrum=new Uint8Array(analyser.frequencyBinCount),avatar=$('bear-avatar');
+ const channel=source.buffer.getChannelData(0),windowSize=Math.max(1,Math.round(source.buffer.sampleRate*.012)),envelope=[];
+ for(let start=0;start<channel.length;start+=windowSize){let energy=0;const end=Math.min(channel.length,start+windowSize);for(let i=start;i<end;i++)energy+=channel[i]*channel[i];envelope.push(Math.sqrt(energy/(end-start)));}
+ const startedAt=voiceAudio.context.currentTime;
  const animate=()=>{
   if(bearAudioSource!==source||voiceAudio.source!==source){
-   if(bearAudioSource===source){bearAudioSource=null;document.body.classList.remove('bear-speaking');$('bear-avatar').style.removeProperty('--mouth-level');}
+   if(bearAudioSource===source){bearAudioSource=null;document.body.classList.remove('bear-speaking');avatar.style.removeProperty('--mouth-open');avatar.style.removeProperty('--mouth-width');avatar.style.removeProperty('--mouth-opacity');}
    return;
   }
-  analyser.getByteTimeDomainData(samples);
-  let sum=0;for(const sample of samples){const centered=(sample-128)/128;sum+=centered*centered;}
-  const rms=Math.sqrt(sum/samples.length);
-  bearLevel=bearLevel*.45+Math.min(1,rms*8)*.55;
-  $('bear-avatar').style.setProperty('--mouth-level',bearLevel.toFixed(3));
+  analyser.getFloatTimeDomainData(samples);analyser.getByteFrequencyData(spectrum);
+  let sum=0;for(const sample of samples)sum+=sample*sample;
+  const liveRms=Math.sqrt(sum/samples.length),position=Math.max(0,(voiceAudio.context.currentTime-startedAt)*source.buffer.sampleRate/windowSize),index=Math.floor(position),mix=position-index;
+  const rms=Math.max(liveRms,(envelope[index]||0)*(1-mix)+(envelope[index+1]||0)*mix);
+  const target=rms<.012?0:Math.min(1,Math.pow((rms-.012)*9,.75));
+  bearLevel+=(target-bearLevel)*(target>bearLevel?.42:.24);
+  let low=0,high=0;for(let i=2;i<16;i++)low+=spectrum[i];for(let i=16;i<55;i++)high+=spectrum[i];
+  const narrow=high/(high+low*2+1);
+  const width=1.04-Math.min(.32,narrow*.5);
+  bearWidth+=(width-bearWidth)*.19;
+  avatar.style.setProperty('--mouth-open',(.06+bearLevel*1.18).toFixed(3));
+  avatar.style.setProperty('--mouth-width',bearWidth.toFixed(3));
+  avatar.style.setProperty('--mouth-opacity',Math.min(1,bearLevel*5).toFixed(3));
   requestAnimationFrame(animate);
  };
  requestAnimationFrame(animate);

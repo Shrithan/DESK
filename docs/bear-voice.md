@@ -1,6 +1,6 @@
 # Bear voice studio
 
-The root dashboard shows only a 3D-style California bear and one text box. The transparent bear render is served locally from `vision/web/cal-bear-3d.png`; its idle movement and pointer tilt provide depth. Click the bear to start or stop listening. Type a command and press Enter to use the text box. Its mouth opening follows the actual Cartesia audio amplitude during speech; Cartesia Sonic produces the voice audio, and Cartesia Ink transcribes microphone commands. Camera and detailed control elements remain offscreen for the command handlers.
+The root dashboard shows only a 3D-style California bear and one text box. The transparent bear render is served locally from `vision/web/cal-bear-3d.png`; its idle movement and pointer tilt provide depth. Click the bear to start or stop listening. Type a command and press Enter to use the text box. The mouth is an SVG with a jaw cavity, teeth, and tongue. Its opening is timed from the decoded Cartesia audio waveform, with smoothing and narrower shapes for higher-frequency sounds; it closes during pauses. Cartesia Sonic produces the voice audio, and Cartesia Ink transcribes microphone commands. Camera and detailed control elements remain offscreen for the command handlers.
 
 ## Configure and run
 
